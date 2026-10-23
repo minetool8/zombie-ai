@@ -1,0 +1,36 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="zombieai"
+version="1.0.0"
+displayName="Zombie AI Overhaul"
+# Mod works server-side; clients with the mod additionally see the size scaling.
+displayTest="IGNORE_ALL_VERSION"
+description='''
+Zombies and Husks use line-of-sight vision, Simple Voice Chat microphone hearing,
+randomized speed/health and size.
+'''
+
+[[dependencies.zombieai]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.zombieai]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)"
+    ordering="NONE"
+    side="BOTH"
+
+# Optional: without Simple Voice Chat the mod still works, just without hearing.
+[[dependencies.zombieai]]
+    modId="voicechat"
+    mandatory=false
+    versionRange="[2.4.0,)"
+    ordering="AFTER"
+    side="SERVER"
