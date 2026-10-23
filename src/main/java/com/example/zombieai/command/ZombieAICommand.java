@@ -4,11 +4,20 @@ import com.example.zombieai.ai.HearingManager;
 import com.example.zombieai.ai.ZombieAIEvents;
 import com.example.zombieai.config.ZombieAIConfig;
 import com.mojang.brigadier.CommandDispatcher;
+import com.example.zombieai.ai.PerceptionGoal;
+import com.example.zombieai.ai.PerceptionUtil;
+import com.example.zombieai.ai.ZombieScale;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.ai.goal.WrappedGoal;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 
+import java.util.List;
 import java.util.Locale;
 
 public final class ZombieAICommand {
@@ -30,6 +39,9 @@ public final class ZombieAICommand {
                                         DoubleArgumentType.getDouble(ctx, "distance")))))
                 .then(Commands.literal("status")
                         .executes(ctx -> status(ctx.getSource())))
+                .then(Commands.literal("debug")
+                        .requires(ZombieAICommand::canConfigure)
+                        .executes(ctx -> debug(ctx.getSource())))
                 .then(Commands.literal("reload")
                         .requires(ZombieAICommand::canConfigure)
                         .executes(ctx -> reload(ctx.getSource()))));
@@ -99,6 +111,63 @@ public final class ZombieAICommand {
         ZombieAIEvents.refreshAll(src.getServer());
         src.sendSuccess(() -> Component.literal("Zombie AI config reloaded. Sight "
                 + fmt(ZombieAIConfig.sight()) + ", hearing " + fmt(ZombieAIConfig.hearing()) + " blocks."), true);
+        return 1;
+    }
+
+    private static int debug(CommandSourceStack src) {
+        ServerPlayer player;
+        try {
+            player = src.getPlayerOrException();
+        } catch (CommandSyntaxException e) {
+            src.sendFailure(Component.literal("Run this command as a player."));
+            return 0;
+        }
+        StringBuilder sb = new StringBuilder("Zombie AI debug:\n");
+
+        // Step 1: is the server receiving mic packets at all?
+        sb.append(" [1] Mic packets seen by server: ").append(HearingManager.totalPackets()).append("\n");
+        long ago = HearingManager.millisSinceLastPacket(player.getUUID());
+        sb.append(" [1] Packets from YOU: ")
+                .append(ago < 0 ? "NONE recorded (talk, then run this again within 1-2 seconds)"
+                        : "last one " + ago + " ms ago").append("\n");
+
+        // Step 2: are you counted as an active speaker?
+        boolean active = HearingManager.speakers().contains(player);
+        sb.append(" [2] Counted as active speaker: ").append(active ? "yes" : "NO");
+        if (player.isCreative() || player.isSpectator()) {
+            sb.append("  <-- you are in creative/spectator, switch to survival");
+        }
+        sb.append("\n");
+
+        // Step 3: what does the nearest zombie/husk think?
+        ServerLevel level = player.serverLevel();
+        List<Mob> mobs = level.getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(64), ZombieScale::applies);
+        Mob nearest = null;
+        for (Mob m : mobs) {
+            if (nearest == null || m.distanceToSqr(player) < nearest.distanceToSqr(player)) nearest = m;
+        }
+        if (nearest == null) {
+            sb.append(" [3] No zombie/husk within 64 blocks.");
+        } else {
+            PerceptionGoal goal = null;
+            for (WrappedGoal w : nearest.targetSelector.getAvailableGoals()) {
+                if (w.getGoal() instanceof PerceptionGoal g) goal = g;
+            }
+            double dist = nearest.distanceTo(player);
+            int walls = PerceptionUtil.countOccluders(level, nearest.getEyePosition(), player.getEyePosition());
+            double effective = dist + walls * ZombieAIConfig.WALL_ATTENUATION.get();
+            sb.append(" [3] Nearest ").append(nearest.getType().getDescriptionId().replace("entity.minecraft.", ""))
+                    .append(": distance ").append(fmt(dist))
+                    .append(", solid blocks between ").append(walls)
+                    .append(", effective ").append(fmt(effective))
+                    .append(" vs hearing ").append(fmt(ZombieAIConfig.hearing()))
+                    .append(effective <= ZombieAIConfig.hearing() ? " (AUDIBLE)" : " (too far/muffled)").append("\n");
+            sb.append(" [3] AI installed: ").append(goal != null ? "yes" : "NO (mod goal missing!)")
+                    .append(", has target: ").append(nearest.getTarget() != null ? "yes (hearing is skipped)" : "no")
+                    .append(", investigating: ").append(goal != null && goal.hasInvestigation() ? "yes" : "no");
+        }
+        String out = sb.toString();
+        src.sendSuccess(() -> Component.literal(out), false);
         return 1;
     }
 }
