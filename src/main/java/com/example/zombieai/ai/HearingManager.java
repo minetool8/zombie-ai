@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Privacy: the ONLY thing stored is "player X sent a mic packet at time T".
@@ -23,12 +24,25 @@ public final class HearingManager {
 
     private static volatile List<ServerPlayer> speakers = List.of();
     public static volatile boolean voiceChatPluginLoaded = false;
+    private static final AtomicLong TOTAL_PACKETS = new AtomicLong();
 
     private HearingManager() {}
 
     /** Called from the voicechat thread. */
     public static void markSpeaking(UUID playerId) {
+        TOTAL_PACKETS.incrementAndGet();
         LAST_MIC_PACKET.put(playerId, System.nanoTime());
+    }
+
+    /** Debug only: how many mic packets (just a count) the server has seen since start. */
+    public static long totalPackets() {
+        return TOTAL_PACKETS.get();
+    }
+
+    /** Debug only: milliseconds since this player's last mic packet, or -1 if none recorded. */
+    public static long millisSinceLastPacket(UUID playerId) {
+        Long t = LAST_MIC_PACKET.get(playerId);
+        return t == null ? -1 : (System.nanoTime() - t) / 1_000_000L;
     }
 
     public static void forget(UUID playerId) {
