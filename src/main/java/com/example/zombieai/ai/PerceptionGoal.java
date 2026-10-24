@@ -7,7 +7,9 @@ import net.minecraft.world.entity.EntitySelector;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.goal.WrappedGoal;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
@@ -17,10 +19,12 @@ import java.util.List;
  *
  *  VISION  : only way to set a player as target. Needs range + clear visual ray.
  *  HEARING : never sets a target. It only sets an approximate investigation point.
- *
- * Runs server-side only (goals only exist/run on the server).
+ *  ALERT   : a zombie hurt by a player it cannot see calls nearby zombies to gather.
  */
 public class PerceptionGoal extends Goal {
+    /** Perception runs every N ticks (2 = 10x per second). */
+    private static final int INTERVAL = 2;
+
     private final Mob mob;
 
     private int ticks;
@@ -64,12 +68,12 @@ public class PerceptionGoal extends Goal {
         if (investigatePos != null && ticks > investigateExpiry) {
             clearInvestigate();
         }
-        if (ticks % 5 != 0) {
-            return; // perception runs 4x per second, raycasts are not free
+        if (ticks % INTERVAL != 0) {
+            return;
         }
 
         double sight = ZombieAIConfig.sight();
-        handleRetaliation(sight);
+        handleRetaliation(level, sight);
 
         LivingEntity target = mob.getTarget();
         if (target instanceof Player player) {
@@ -125,11 +129,10 @@ public class PerceptionGoal extends Goal {
             return;
         }
         if (lastSeenPos == null) {
-            lastSeenPos = player.position(); // e.g. target set by retaliation: where they hit us from
+            lastSeenPos = player.position();
         }
-        unseenTicks += 5;
+        unseenTicks += INTERVAL;
         if (unseenTicks > ZombieAIConfig.LOSE_SIGHT_GRACE_TICKS.get()) {
-            // Lost sight: drop the target so vanilla AI stops homing in on the live position.
             mob.setTarget(null);
             mob.getNavigation().stop();
             if (ZombieAIConfig.INVESTIGATE_LAST_SEEN.get()) {
@@ -141,7 +144,7 @@ public class PerceptionGoal extends Goal {
     }
 
     /** Replaces vanilla HurtByTargetGoal, which kept tracking attackers through walls. */
-    private void handleRetaliation(double sight) {
+    private void handleRetaliation(ServerLevel level, double sight) {
         int stamp = mob.getLastHurtByMobTimestamp();
         if (stamp == handledHurtStamp) return;
         handledHurtStamp = stamp;
@@ -151,9 +154,41 @@ public class PerceptionGoal extends Goal {
             if (PerceptionUtil.canSee(mob, p, sight)) {
                 setVisualTarget(p);
             } else {
-                startInvestigate(p.position()); // we were hit from somewhere unseen
+                // Hit by someone we cannot see: go to where they hit us from, and call the pack.
+                startInvestigate(p.position());
+                Vec3 rally = ZombieAIConfig.RALLY_AT_ATTACKER.get() ? p.position() : mob.position();
+                alertNearby(level, rally);
             }
         }
+    }
+
+    // ------------------------------------------------------------------- alert
+
+    private void alertNearby(ServerLevel level, Vec3 rally) {
+        double radius = ZombieAIConfig.ALERT_RADIUS.get();
+        if (radius <= 0.0) return;
+        double jitter = ZombieAIConfig.INVESTIGATE_RADIUS.get();
+        AABB box = mob.getBoundingBox().inflate(radius);
+        List<Mob> others = level.getEntitiesOfClass(Mob.class, box,
+                m -> m != mob && m.isAlive() && ZombieScale.applies(m));
+        for (Mob other : others) {
+            if (other.distanceToSqr(mob) > radius * radius) continue;
+            for (WrappedGoal w : other.targetSelector.getAvailableGoals()) {
+                if (w.getGoal() instanceof PerceptionGoal g) {
+                    g.receiveAlert(rally, jitter);
+                    break;
+                }
+            }
+        }
+    }
+
+    /** Called by a neighbour: gather near the given point (approximate), unless already fighting. */
+    public void receiveAlert(Vec3 center, double jitter) {
+        if (mob.getTarget() != null) return;
+        double angle = mob.getRandom().nextDouble() * Math.PI * 2.0;
+        double r = Math.sqrt(mob.getRandom().nextDouble()) * jitter;
+        startInvestigate(new Vec3(center.x + Math.cos(angle) * r, center.y, center.z + Math.sin(angle) * r));
+        firstHeard = -1;
     }
 
     // ----------------------------------------------------------------- hearing
@@ -180,15 +215,14 @@ public class PerceptionGoal extends Goal {
         }
         if (loudest == null) return;
 
-        // Reaction delay: must stay audible for a while (short gaps between words are tolerated).
         if (firstHeard < 0 || ticks - lastAudible > 20) {
             firstHeard = ticks;
         }
         lastAudible = ticks;
         if (ticks - firstHeard < ZombieAIConfig.REACTION_DELAY_TICKS.get()) return;
 
-        // Only an APPROXIMATE location; refreshed every 2s while the player keeps talking.
-        if (investigatePos == null || ticks - lastInvestigateUpdate >= 40) {
+        // Approximate location, refreshed every second while the player keeps talking.
+        if (investigatePos == null || ticks - lastInvestigateUpdate >= 20) {
             lastInvestigateUpdate = ticks;
             double radius = ZombieAIConfig.INVESTIGATE_RADIUS.get();
             double angle = mob.getRandom().nextDouble() * Math.PI * 2.0;
