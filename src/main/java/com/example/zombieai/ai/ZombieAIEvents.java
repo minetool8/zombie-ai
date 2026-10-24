@@ -30,7 +30,7 @@ public final class ZombieAIEvents {
     private static final UUID SPEED_UUID = UUID.fromString("5d0b6f3a-7a53-4f1e-9a41-3c1f0a6b7e01");
     private static final UUID HEALTH_UUID = UUID.fromString("5d0b6f3a-7a53-4f1e-9a41-3c1f0a6b7e02");
     private static final UUID RANGE_UUID = UUID.fromString("5d0b6f3a-7a53-4f1e-9a41-3c1f0a6b7e03");
-    private static final String TAG_ROLLED = "zombieai_rolled";
+    private static final String TAG_ROLLED = "zombieai_rolled_v2";
 
     private ZombieAIEvents() {}
 
@@ -57,27 +57,30 @@ public final class ZombieAIEvents {
         if (data.getBoolean(TAG_ROLLED)) return;
 
         RandomSource r = mob.getRandom();
-        double speed = rollSpeed(r);
+        double speed = rollSpeed(r, ZombieScale.isTall(mob));
         double health = rollHealth(r);
 
         // MULTIPLY_TOTAL multiplies the final value, so "1.5x" really means 1.5x vanilla
         // (including baby-zombie / leader bonuses already applied).
-        addOnce(mob, Attributes.MOVEMENT_SPEED, SPEED_UUID, "zombieai speed", speed - 1.0);
-        addOnce(mob, Attributes.MAX_HEALTH, HEALTH_UUID, "zombieai health", health - 1.0);
+        setModifier(mob, Attributes.MOVEMENT_SPEED, SPEED_UUID, "zombieai speed", speed - 1.0);
+        setModifier(mob, Attributes.MAX_HEALTH, HEALTH_UUID, "zombieai health", health - 1.0);
         mob.setHealth(mob.getMaxHealth());
 
         data.putBoolean(TAG_ROLLED, true);
     }
 
-    private static void addOnce(Mob mob, net.minecraft.world.entity.ai.attributes.Attribute attr,
+    private static void setModifier(Mob mob, net.minecraft.world.entity.ai.attributes.Attribute attr,
                                 UUID id, String name, double amount) {
         AttributeInstance inst = mob.getAttribute(attr);
-        if (inst != null && inst.getModifier(id) == null) {   // never stack duplicates
+        if (inst != null) {
+            inst.removeModifier(id);   // replace, never stack duplicates (also upgrades v1 zombies once)
             inst.addPermanentModifier(new AttributeModifier(id, name, amount, AttributeModifier.Operation.MULTIPLY_TOTAL));
         }
     }
 
-    static double rollSpeed(RandomSource r) {
+    static double rollSpeed(RandomSource r, boolean tall) {
+        // Tall zombies (>2 blocks, ~5%) are always faster than any normal zombie (normal max is 2.0x).
+        if (tall) return 2.1 + r.nextDouble() * 0.4;              // 2.1 - 2.5x
         double roll = r.nextDouble();
         if (roll < 0.50) return 1.5;                              // 50%
         if (roll < 0.70) return 1.2 + r.nextDouble() * 0.2;       // 20%: 1.2-1.4
@@ -164,7 +167,7 @@ public final class ZombieAIEvents {
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-        if (server != null && server.getTickCount() % 2 == 0) {
+        if (server != null) {
             HearingManager.refresh(server);
         }
     }
