@@ -7,8 +7,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,12 +19,15 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Voice hearing.
  *
- * Privacy: for every 20 ms voice frame the plugin computes ONE number (loudness in dB) and throws the
+ * Privacy: for every 20 ms voice frame the plugin computes ONE number (loudness) and throws the
  * audio away immediately. No audio, no words and no recordings are ever stored or sent anywhere.
  * What is kept: "player X sent a voice frame at time T" and "their loudest frame in the last 0.3 s".
  *
+ * Loudness scale: the plugin measures the digital level of the mic signal (dBFS, 0 = loudest, negative below).
+ * A game cannot know real sound pressure, so we show it on a familiar "dB" scale:
+ *     dB = dBFS + micOffsetDecibels      (set the offset once with /zombieai calibrate)
+ *
  * Voice packets arrive on voicechat's own thread, so markSpeaking() only touches concurrent maps.
- * The main server thread turns that into a snapshot via refresh().
  * This class has NO voicechat imports, so it loads fine without Simple Voice Chat.
  */
 public final class HearingManager {
@@ -32,21 +37,36 @@ public final class HearingManager {
     private static final long PRUNE_NANOS = 5_000_000_000L;
     private static final long PEAK_HOLD_NANOS = 300_000_000L;      // loudest frame of the last 0.3 s counts
 
+    /** Calibration: the player's normal speaking voice is mapped to this many dB. */
+    public static final double CALIBRATION_TARGET_DB = 85.0;
+    private static final int CALIBRATION_TICKS = 100;               // 5 seconds
+
     private static final class LoudnessState {
-        volatile double peakDb = -100.0;
+        volatile double peakDb = -100.0;   // dBFS
         volatile long peakNanos;
 
-        synchronized void add(double db, long now) {
-            if (db >= peakDb || now - peakNanos > PEAK_HOLD_NANOS) {
-                peakDb = db;
+        synchronized void add(double dbfs, long now) {
+            if (dbfs >= peakDb || now - peakNanos > PEAK_HOLD_NANOS) {
+                peakDb = dbfs;
                 peakNanos = now;
             }
+        }
+    }
+
+    private static final class Calibration {
+        final int startTick;
+        double sum;
+        int count;
+
+        Calibration(int startTick) {
+            this.startTick = startTick;
         }
     }
 
     private static final ConcurrentHashMap<UUID, Long> LAST_MIC_PACKET = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, LoudnessState> LEVELS = new ConcurrentHashMap<>();
     private static final Set<UUID> METER = ConcurrentHashMap.newKeySet();
+    private static final Map<UUID, Calibration> CALIBRATING = new ConcurrentHashMap<>();
     private static final AtomicLong TOTAL_PACKETS = new AtomicLong();
 
     private static volatile List<ServerPlayer> speakers = List.of();
@@ -60,13 +80,13 @@ public final class HearingManager {
         markSpeaking(playerId, Double.NaN);
     }
 
-    /** @param db loudness of this frame in dBFS (0 = loudest possible, -100 = silence), NaN if unknown */
-    public static void markSpeaking(UUID playerId, double db) {
+    /** @param dbfs digital level of this frame (0 = loudest possible, -100 = silence), NaN if unknown */
+    public static void markSpeaking(UUID playerId, double dbfs) {
         long now = System.nanoTime();
         TOTAL_PACKETS.incrementAndGet();
         LAST_MIC_PACKET.put(playerId, now);
-        if (!Double.isNaN(db)) {
-            LEVELS.computeIfAbsent(playerId, k -> new LoudnessState()).add(db, now);
+        if (!Double.isNaN(dbfs)) {
+            LEVELS.computeIfAbsent(playerId, k -> new LoudnessState()).add(dbfs, now);
         }
     }
 
@@ -74,6 +94,7 @@ public final class HearingManager {
         LAST_MIC_PACKET.remove(playerId);
         LEVELS.remove(playerId);
         METER.remove(playerId);
+        CALIBRATING.remove(playerId);
     }
 
     // --------------------------------------------------------------- main thread
@@ -99,6 +120,9 @@ public final class HearingManager {
         if (!METER.isEmpty() && server.getTickCount() % 4 == 0) {
             showMeters(server, now);
         }
+        if (!CALIBRATING.isEmpty()) {
+            tickCalibration(server, now);
+        }
     }
 
     public static List<ServerPlayer> speakers() {
@@ -107,9 +131,16 @@ public final class HearingManager {
 
     // ------------------------------------------------------------- loudness tiers
 
-    public static Tier tierFromDb(double db) {
+    /** Converts the digital mic level to the "dB" scale used by the config (0..~140). */
+    public static double toDecibels(double dbfs) {
+        return dbfs + ZombieAIConfig.MIC_OFFSET_DB.get();
+    }
+
+    /** Whisper: up to whisperMaxDecibels. Shout: above shoutMinDecibels. Everything in between is normal talking. */
+    public static Tier tierFromDb(double dbfs) {
+        double db = toDecibels(dbfs);
         if (db < ZombieAIConfig.WHISPER_MAX_DB.get()) return Tier.WHISPER;
-        if (db >= ZombieAIConfig.SHOUT_MIN_DB.get()) return Tier.SHOUT;
+        if (db > ZombieAIConfig.SHOUT_MIN_DB.get()) return Tier.SHOUT;
         return Tier.NORMAL;
     }
 
@@ -128,10 +159,10 @@ public final class HearingManager {
             case NORMAL -> talking;
             case SHOUT -> Math.max(ZombieAIConfig.SHOUT_RANGE.get(), talking);
         };
-        return base * ZombieAIConfig.rainFactor(level);
+        return base * ZombieAIConfig.rainFactor(level);   // rain muffling (default -80%) applies to every tier
     }
 
-    // ----------------------------------------------------------------- debug tools
+    // ----------------------------------------------------------------- meter / calibration
 
     /** Toggles the live mic meter above the player's hotbar. Returns true if it is now on. */
     public static boolean toggleMeter(UUID playerId) {
@@ -151,11 +182,65 @@ public final class HearingManager {
                 text = "Mic: silent";
             } else {
                 text = String.format(Locale.ROOT, "Mic: %.0f dB  =  %s  (zombies hear %.0f blocks)",
-                        s.peakDb, tierFromDb(s.peakDb), rangeFor(p, p.level()));
+                        toDecibels(s.peakDb), tierFromDb(s.peakDb), rangeFor(p, p.level()));
             }
             p.displayClientMessage(Component.literal(text), true);
         }
     }
+
+    /** Starts a 5 second calibration: the player talks normally and their voice is mapped to 85 dB. */
+    public static void startCalibration(ServerPlayer player) {
+        MinecraftServer server = player.getServer();
+        if (server != null) {
+            CALIBRATING.put(player.getUUID(), new Calibration(server.getTickCount()));
+        }
+    }
+
+    private static void tickCalibration(MinecraftServer server, long nowNanos) {
+        int tick = server.getTickCount();
+        Iterator<Map.Entry<UUID, Calibration>> it = CALIBRATING.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, Calibration> e = it.next();
+            ServerPlayer p = server.getPlayerList().getPlayer(e.getKey());
+            if (p == null) {
+                it.remove();
+                continue;
+            }
+            Calibration c = e.getValue();
+            LoudnessState s = LEVELS.get(e.getKey());
+            Long last = LAST_MIC_PACKET.get(e.getKey());
+            if (s != null && last != null && nowNanos - last <= ACTIVE_WINDOW_NANOS) {
+                c.sum += s.peakDb;
+                c.count++;
+            }
+            if (tick - c.startTick >= CALIBRATION_TICKS) {
+                it.remove();
+                finishCalibration(p, c);
+            }
+        }
+    }
+
+    private static void finishCalibration(ServerPlayer p, Calibration c) {
+        if (c.count < 20) {   // less than about one second of speech
+            p.sendSystemMessage(Component.literal("Calibration failed: I barely heard you. Check that voice chat works "
+                    + "(press V), then run /zombieai calibrate again and keep talking for the full 5 seconds."));
+            return;
+        }
+        double meanDbfs = c.sum / c.count;
+        double offset = Math.max(0.0, Math.min(200.0, CALIBRATION_TARGET_DB - meanDbfs));
+        try {
+            ZombieAIConfig.setMicOffset(offset);
+        } catch (RuntimeException ex) {
+            p.sendSystemMessage(Component.literal("Calibration measured, but saving the config failed: " + ex.getMessage()));
+            return;
+        }
+        p.sendSystemMessage(Component.literal(String.format(Locale.ROOT,
+                "Calibrated: your normal voice now reads about %.0f dB. Whisper is under %.0f dB, shouting is over %.0f dB. "
+                        + "Use /zombieai meter to check.", CALIBRATION_TARGET_DB,
+                ZombieAIConfig.WHISPER_MAX_DB.get(), ZombieAIConfig.SHOUT_MIN_DB.get())));
+    }
+
+    // ----------------------------------------------------------------- debug
 
     public static long totalPackets() {
         return TOTAL_PACKETS.get();

@@ -24,6 +24,7 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.DoubleValue SHOUT_RANGE;
     public static final ForgeConfigSpec.DoubleValue WHISPER_MAX_DB;
     public static final ForgeConfigSpec.DoubleValue SHOUT_MIN_DB;
+    public static final ForgeConfigSpec.DoubleValue MIC_OFFSET_DB;
     public static final ForgeConfigSpec.BooleanValue SHOUT_GROWL_ENABLED;
     public static final ForgeConfigSpec.IntValue SHOUT_GROWL_COOLDOWN_TICKS;
     public static final ForgeConfigSpec.IntValue SHOUT_GROWL_MAX_ZOMBIES;
@@ -93,11 +94,13 @@ public final class ZombieAIConfig {
                 .defineInRange("whisperRange", 1.0, 0.0, 32.0);
         SHOUT_RANGE = b.comment("Hearing range (blocks) for shouting (voice louder than shoutMinDb).")
                 .defineInRange("shoutRange", 100.0, 1.0, 1024.0);
-        WHISPER_MAX_DB = b.comment("Voice quieter than this (dBFS: 0 = loudest, -100 = silence) counts as a whisper.",
-                        "These numbers depend on your mic: run /zombieai meter and talk to calibrate.")
-                .defineInRange("whisperMaxDb", -38.0, -100.0, 0.0);
-        SHOUT_MIN_DB = b.comment("Voice louder than this (dBFS) counts as shouting. Calibrate with /zombieai meter.")
-                .defineInRange("shoutMinDb", -16.0, -100.0, 0.0);
+        WHISPER_MAX_DB = b.comment("A voice up to this loud (in dB) counts as a whisper.")
+                .defineInRange("whisperMaxDecibels", 60.0, 0.0, 200.0);
+        SHOUT_MIN_DB = b.comment("A voice ABOVE this loud (in dB) counts as shouting. Anything between whisper and shout is normal talking.")
+                .defineInRange("shoutMinDecibels", 100.0, 0.0, 200.0);
+        MIC_OFFSET_DB = b.comment("Converts your mic's digital level to the dB scale above (dB = mic level + this offset).",
+                        "Set it automatically with /zombieai calibrate. Check it with /zombieai meter.")
+                .defineInRange("micOffsetDecibels", 110.0, 0.0, 200.0);
         SHOUT_GROWL_ENABLED = b.comment("When you shout and zombies BEYOND normal talking range hear it, everyone in the shout radius hears loud growls from their direction.")
                 .define("shoutGrowlEnabled", true);
         SHOUT_GROWL_COOLDOWN_TICKS = b.comment("Minimum ticks between growls per shouting player (20 = 1 second).")
@@ -188,6 +191,7 @@ public final class ZombieAIConfig {
     // ---- setters used by the command (caller validates the range) ----
     public static void setSight(double v) { SIGHT_DISTANCE.set(v); SPEC.save(); }
     public static void setHearing(double v) { HEARING_DISTANCE.set(v); SPEC.save(); }
+    public static void setMicOffset(double v) { MIC_OFFSET_DB.set(v); SPEC.save(); }
 
     /** Re-reads the TOML file from disk. Returns false if the config file is not available. */
     public static boolean reload() {

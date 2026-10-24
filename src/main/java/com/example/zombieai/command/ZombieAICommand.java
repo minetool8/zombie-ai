@@ -39,6 +39,9 @@ public final class ZombieAICommand {
                                         DoubleArgumentType.getDouble(ctx, "distance")))))
                 .then(Commands.literal("status")
                         .executes(ctx -> status(ctx.getSource())))
+                .then(Commands.literal("calibrate")
+                        .requires(ZombieAICommand::canConfigure)
+                        .executes(ctx -> calibrate(ctx.getSource())))
                 .then(Commands.literal("meter")
                         .requires(ZombieAICommand::canConfigure)
                         .executes(ctx -> meter(ctx.getSource())))
@@ -94,8 +97,8 @@ public final class ZombieAICommand {
                         + " Sight: " + fmt(ZombieAIConfig.sight()) + " blocks\n"
                         + " Hearing: " + fmt(ZombieAIConfig.hearing()) + " blocks ("
                         + fmt(ZombieAIConfig.WALL_ATTENUATION.get()) + " extra per solid block)\n"
-                        + " Voice: whisper " + fmt(ZombieAIConfig.WHISPER_RANGE.get()) + ", talking " + fmt(ZombieAIConfig.hearing())
-                        + ", shouting " + fmt(ZombieAIConfig.SHOUT_RANGE.get()) + " blocks\n"
+                        + " Voice: whisper (up to " + fmt(ZombieAIConfig.WHISPER_MAX_DB.get()) + " dB) " + fmt(ZombieAIConfig.WHISPER_RANGE.get()) + ", talking " + fmt(ZombieAIConfig.hearing())
+                        + ", shouting (above " + fmt(ZombieAIConfig.SHOUT_MIN_DB.get()) + " dB) " + fmt(ZombieAIConfig.SHOUT_RANGE.get()) + " blocks\n"
                         + " Limits: " + fmt(ZombieAIConfig.minDistance()) + " - " + fmt(ZombieAIConfig.maxDistance()) + " blocks\n"
                         + " " + voice), false);
         return 1;
@@ -119,7 +122,22 @@ public final class ZombieAICommand {
         return 1;
     }
 
-    /** Live mic loudness meter (action bar), for calibrating whisperMaxDb / shoutMinDb. */
+    /** 5 second calibration: map the player's normal speaking voice to a fixed dB value. */
+    private static int calibrate(CommandSourceStack src) {
+        ServerPlayer player;
+        try {
+            player = src.getPlayerOrException();
+        } catch (CommandSyntaxException e) {
+            src.sendFailure(Component.literal("Run this command as a player."));
+            return 0;
+        }
+        HearingManager.startCalibration(player);
+        src.sendSuccess(() -> Component.literal("Calibrating for 5 seconds: talk at your NORMAL speaking volume "
+                + "now (say anything, keep talking, don't whisper or shout)."), false);
+        return 1;
+    }
+
+    /** Live mic loudness meter (action bar). */
     private static int meter(CommandSourceStack src) {
         ServerPlayer player;
         try {
