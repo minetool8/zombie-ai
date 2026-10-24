@@ -41,7 +41,9 @@ public final class ZombieAICommand {
                         .executes(ctx -> status(ctx.getSource())))
                 .then(Commands.literal("calibrate")
                         .requires(ZombieAICommand::canConfigure)
-                        .executes(ctx -> calibrate(ctx.getSource())))
+                        .executes(ctx -> calibrate(ctx.getSource(), HearingManager.CALIBRATION_TARGET_DB))
+                        .then(Commands.argument("db", DoubleArgumentType.doubleArg(20.0, 130.0))
+                                .executes(ctx -> calibrate(ctx.getSource(), DoubleArgumentType.getDouble(ctx, "db")))))
                 .then(Commands.literal("meter")
                         .requires(ZombieAICommand::canConfigure)
                         .executes(ctx -> meter(ctx.getSource())))
@@ -123,7 +125,7 @@ public final class ZombieAICommand {
     }
 
     /** 5 second calibration: map the player's normal speaking voice to a fixed dB value. */
-    private static int calibrate(CommandSourceStack src) {
+    private static int calibrate(CommandSourceStack src, double targetDb) {
         ServerPlayer player;
         try {
             player = src.getPlayerOrException();
@@ -131,9 +133,10 @@ public final class ZombieAICommand {
             src.sendFailure(Component.literal("Run this command as a player."));
             return 0;
         }
-        HearingManager.startCalibration(player);
-        src.sendSuccess(() -> Component.literal("Calibrating for 5 seconds: talk at your NORMAL speaking volume "
-                + "now (say anything, keep talking, don't whisper or shout)."), false);
+        HearingManager.startCalibration(player, targetDb);
+        src.sendSuccess(() -> Component.literal(String.format(Locale.ROOT,
+                "Calibrating for 5 seconds: keep talking at ONE steady volume now. I will treat that volume as %.0f dB.",
+                targetDb)), false);
         return 1;
     }
 

@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * Privacy: for every 20 ms voice frame the plugin computes ONE number (loudness) and throws the
  * audio away immediately. No audio, no words and no recordings are ever stored or sent anywhere.
- * What is kept: "player X sent a voice frame at time T" and "their loudest frame in the last 0.3 s".
+ * What is kept: "player X sent a voice frame at time T" and a smoothed (about 125 ms) loudness number.
  *
  * Loudness scale: the plugin measures the digital level of the mic signal (dBFS, 0 = loudest, negative below).
  * A game cannot know real sound pressure, so we show it on a familiar "dB" scale:
@@ -35,31 +35,40 @@ public final class HearingManager {
 
     private static final long ACTIVE_WINDOW_NANOS = 400_000_000L;   // "currently talking" window
     private static final long PRUNE_NANOS = 5_000_000_000L;
-    private static final long PEAK_HOLD_NANOS = 300_000_000L;      // loudest frame of the last 0.3 s counts
+    private static final double SMOOTHING_ALPHA = 0.15;            // about 125 ms response, like a sound meter's "fast" mode
+    private static final long RESET_NANOS = 400_000_000L;          // a pause longer than this starts a new utterance
 
     /** Calibration: the player's normal speaking voice is mapped to this many dB. */
     public static final double CALIBRATION_TARGET_DB = 85.0;
     private static final int CALIBRATION_TICKS = 100;               // 5 seconds
 
+    /** Smoothed loudness. (Field names kept: peakDb = current smoothed level in dBFS, peakNanos = last frame time.) */
     private static final class LoudnessState {
-        volatile double peakDb = -100.0;   // dBFS
+        volatile double peakDb = -100.0;
         volatile long peakNanos;
+        private double smoothedPower;
 
         synchronized void add(double dbfs, long now) {
-            if (dbfs >= peakDb || now - peakNanos > PEAK_HOLD_NANOS) {
-                peakDb = dbfs;
-                peakNanos = now;
+            double power = Math.pow(10.0, dbfs / 10.0);
+            if (now - peakNanos > RESET_NANOS) {
+                smoothedPower = power;                                   // new utterance
+            } else {
+                smoothedPower += SMOOTHING_ALPHA * (power - smoothedPower);   // average power, like a sound meter
             }
+            peakNanos = now;
+            peakDb = 10.0 * Math.log10(Math.max(smoothedPower, 1.0E-12));
         }
     }
 
     private static final class Calibration {
         final int startTick;
+        final double target;
         double sum;
         int count;
 
-        Calibration(int startTick) {
+        Calibration(int startTick, double target) {
             this.startTick = startTick;
+            this.target = target;
         }
     }
 
@@ -188,11 +197,11 @@ public final class HearingManager {
         }
     }
 
-    /** Starts a 5 second calibration: the player talks normally and their voice is mapped to 85 dB. */
-    public static void startCalibration(ServerPlayer player) {
+    /** Starts a 5 second calibration: the player's steady voice is mapped to targetDb. */
+    public static void startCalibration(ServerPlayer player, double targetDb) {
         MinecraftServer server = player.getServer();
         if (server != null) {
-            CALIBRATING.put(player.getUUID(), new Calibration(server.getTickCount()));
+            CALIBRATING.put(player.getUUID(), new Calibration(server.getTickCount(), targetDb));
         }
     }
 
@@ -227,7 +236,7 @@ public final class HearingManager {
             return;
         }
         double meanDbfs = c.sum / c.count;
-        double offset = Math.max(0.0, Math.min(200.0, CALIBRATION_TARGET_DB - meanDbfs));
+        double offset = Math.max(0.0, Math.min(200.0, c.target - meanDbfs));
         try {
             ZombieAIConfig.setMicOffset(offset);
         } catch (RuntimeException ex) {
@@ -235,8 +244,8 @@ public final class HearingManager {
             return;
         }
         p.sendSystemMessage(Component.literal(String.format(Locale.ROOT,
-                "Calibrated: your normal voice now reads about %.0f dB. Whisper is under %.0f dB, shouting is over %.0f dB. "
-                        + "Use /zombieai meter to check.", CALIBRATION_TARGET_DB,
+                "Calibrated: your voice now reads about %.0f dB. Whisper is under %.0f dB, shouting is over %.0f dB. "
+                        + "Use /zombieai meter to check.", c.target,
                 ZombieAIConfig.WHISPER_MAX_DB.get(), ZombieAIConfig.SHOUT_MIN_DB.get())));
     }
 
