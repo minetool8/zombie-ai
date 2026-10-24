@@ -1,6 +1,7 @@
 package com.example.zombieai.config;
 
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
+import net.minecraft.world.level.Level;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.config.ModConfigEvent;
@@ -15,6 +16,7 @@ public final class ZombieAIConfig {
 
     public static final ForgeConfigSpec.DoubleValue HEARING_DISTANCE;
     public static final ForgeConfigSpec.DoubleValue WALL_ATTENUATION;
+    public static final ForgeConfigSpec.DoubleValue RAIN_HEARING_MULTIPLIER;
     public static final ForgeConfigSpec.IntValue REACTION_DELAY_TICKS;
     public static final ForgeConfigSpec.DoubleValue INVESTIGATE_RADIUS;
     public static final ForgeConfigSpec.IntValue INVESTIGATE_TIMEOUT_TICKS;
@@ -48,6 +50,8 @@ public final class ZombieAIConfig {
                 .defineInRange("hearingDistance", 32.0, 1.0, 1024.0);
         WALL_ATTENUATION = b.comment("Extra 'effective distance' (blocks) added per solid block between zombie and speaker.")
                 .defineInRange("wallAttenuationPerBlock", 4.0, 0.0, 128.0);
+        RAIN_HEARING_MULTIPLIER = b.comment("Hearing range multiplier while it is raining (0.2 = range reduced by 80%).")
+                .defineInRange("rainHearingMultiplier", 0.2, 0.0, 1.0);
         REACTION_DELAY_TICKS = b.comment("Ticks a player must be continuously audible before the zombie reacts (20 = 1s).")
                 .defineInRange("reactionDelayTicks", 0, 0, 200);
         INVESTIGATE_RADIUS = b.comment("Random error (blocks) applied to the sound location: zombies only know the APPROXIMATE spot.")
@@ -91,6 +95,12 @@ public final class ZombieAIConfig {
 
     public static double sight() { return clamp(SIGHT_DISTANCE.get()); }
     public static double hearing() { return clamp(HEARING_DISTANCE.get()); }
+
+    /** Hearing range in this level: reduced while it is raining. */
+    public static double hearing(Level level) {
+        double h = hearing();
+        return level.isRaining() ? h * RAIN_HEARING_MULTIPLIER.get() : h;
+    }
 
     // ---- setters used by the command (caller validates the range) ----
     public static void setSight(double v) { SIGHT_DISTANCE.set(v); SPEC.save(); }
