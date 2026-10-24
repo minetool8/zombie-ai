@@ -11,6 +11,7 @@ import java.util.EnumSet;
 public class InvestigateSoundGoal extends Goal {
     private final Mob mob;
     private final PerceptionGoal perception;
+    private Vec3 pathedTo;
     private int repath;
     private int stuck;
 
@@ -32,6 +33,7 @@ public class InvestigateSoundGoal extends Goal {
 
     @Override
     public void start() {
+        pathedTo = null;
         repath = 0;
         stuck = 0;
     }
@@ -43,17 +45,31 @@ public class InvestigateSoundGoal extends Goal {
         mob.getLookControl().setLookAt(pos.x, pos.y + 1.0, pos.z);   // turn toward the sound
 
         if (mob.distanceToSqr(pos) < 2.5 * 2.5) {
-            perception.clearInvestigate(); // arrived, nothing here
+            perception.clearInvestigate();   // arrived, nothing here
             mob.getNavigation().stop();
             return;
         }
+        PathNavigation nav = mob.getNavigation();
+
+        // A NEW target point (the sound moved, or a retry): walk there right away instead of
+        // finishing the old path first.
+        if (pos != pathedTo) {
+            pathedTo = pos;
+            stuck = 0;
+            repath = 10;
+            nav.moveTo(pos.x, pos.y, pos.z, 1.0D);
+            return;
+        }
+
         if (--repath <= 0) {
             repath = 10;
-            PathNavigation nav = mob.getNavigation();
             if (nav.isDone()) {
-                // Path finished (or none) but still far away: unreachable / partial path. Give up after a few tries.
                 if (++stuck >= 3) {
-                    perception.clearInvestigate();
+                    // Unreachable spot (inside rock, behind water...): try another spot around the sound.
+                    if (!perception.retryInvestigate()) {
+                        perception.clearInvestigate();
+                    }
+                    stuck = 0;
                     return;
                 }
                 nav.moveTo(pos.x, pos.y, pos.z, 1.0D);

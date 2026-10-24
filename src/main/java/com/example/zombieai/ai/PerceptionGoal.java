@@ -35,6 +35,9 @@ public class PerceptionGoal extends Goal {
     private Vec3 investigatePos;
     private int investigateExpiry;
     private int lastInvestigateUpdate = -1000;
+    private Vec3 investigateCenter;
+    private double investigateJitter;
+    private int investigateRetries;
 
     private LivingEntity lastTarget;
     /** The player target we chose ourselves (sight, blood, retaliation). Anything else was set by another mod. */
@@ -53,7 +56,10 @@ public class PerceptionGoal extends Goal {
 
     public Vec3 investigatePos() { return investigatePos; }
     public boolean hasInvestigation() { return investigatePos != null; }
-    public void clearInvestigate() { investigatePos = null; }
+    public void clearInvestigate() {
+        investigatePos = null;
+        investigateCenter = null;
+    }
 
     /** Idle (no target, nothing to investigate) while it is night/raining: stand still. */
     public boolean isFrozen() {
@@ -63,7 +69,33 @@ public class PerceptionGoal extends Goal {
 
     private void startInvestigate(Vec3 pos) {
         investigatePos = pos;
+        investigateCenter = null;
         investigateExpiry = ticks + ZombieAIConfig.INVESTIGATE_TIMEOUT_TICKS.get();
+        // Pathing to a far sound needs a bigger search range (only for this zombie, only while walking there).
+        ZombieAIEvents.refreshFollowRange(mob, mob.position().distanceTo(pos) + 10.0);
+    }
+
+    /** Investigate a point randomly offset around the real sound source (zombies only know it approximately). */
+    private void startInvestigateAround(Vec3 center, double jitter) {
+        startInvestigate(jitterPoint(center, jitter));
+        investigateCenter = center;
+        investigateJitter = jitter;
+        investigateRetries = 0;
+    }
+
+    private Vec3 jitterPoint(Vec3 center, double jitter) {
+        double angle = mob.getRandom().nextDouble() * Math.PI * 2.0;
+        double r = Math.sqrt(mob.getRandom().nextDouble()) * jitter;
+        return new Vec3(center.x + Math.cos(angle) * r, center.y, center.z + Math.sin(angle) * r);
+    }
+
+    /** The chosen spot could not be reached: pick another spot near the sound (max 2 tries). */
+    public boolean retryInvestigate() {
+        if (investigateCenter == null || investigateRetries >= 2) return false;
+        investigateRetries++;
+        investigatePos = jitterPoint(investigateCenter, Math.max(investigateJitter, 3.0));
+        investigateExpiry = ticks + ZombieAIConfig.INVESTIGATE_TIMEOUT_TICKS.get();
+        return true;
     }
 
     @Override
@@ -73,7 +105,8 @@ public class PerceptionGoal extends Goal {
         }
         ticks++;
         if (ticks % 20 == 0) {
-            ZombieAIEvents.refreshFollowRange(mob);
+            ZombieAIEvents.refreshFollowRange(mob,
+                    investigatePos != null ? mob.position().distanceTo(investigatePos) + 10.0 : 0.0);
         }
         if (investigatePos != null && ticks > investigateExpiry) {
             clearInvestigate();
@@ -251,21 +284,18 @@ public class PerceptionGoal extends Goal {
     /** Called by a neighbour: gather near the given point (approximate), unless already fighting. */
     public void receiveAlert(Vec3 center, double jitter) {
         if (mob.getTarget() != null) return;
-        double angle = mob.getRandom().nextDouble() * Math.PI * 2.0;
-        double r = Math.sqrt(mob.getRandom().nextDouble()) * jitter;
-        startInvestigate(new Vec3(center.x + Math.cos(angle) * r, center.y, center.z + Math.sin(angle) * r));
+        startInvestigateAround(center, jitter);
         firstHeard = -1;
     }
 
     // ----------------------------------------------------------------- hearing
 
-    /** Hears microphone voice (Simple Voice Chat) and movement noise (steps, sprinting, jumping). */
+    /** Hears player voice (range depends on how LOUD they are) and movement noise (steps, sprinting, jumping). */
     private void processHearing(ServerLevel level) {
         List<ServerPlayer> speakers = HearingManager.speakers();
         List<ServerPlayer> movers = MovementNoise.noisyPlayers();
         if (speakers.isEmpty() && movers.isEmpty()) return;
 
-        double voiceRange = ZombieAIConfig.hearing(level);            // smaller while raining
         double moveRange = ZombieAIConfig.movementNoiseRange(level);  // smaller while raining
         double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
         double radius = ZombieAIConfig.INVESTIGATE_RADIUS.get();
@@ -275,10 +305,11 @@ public class PerceptionGoal extends Goal {
         double sourceJitter = radius;
         for (int pass = 0; pass < 2; pass++) {
             List<ServerPlayer> list = pass == 0 ? speakers : movers;
-            double range = pass == 0 ? voiceRange : moveRange;
-            if (range <= 0.0) continue;
             for (ServerPlayer sp : list) {
                 if (sp.level() != level) continue;
+                // Voice: a whisper, normal talking and a shout each reach a different distance.
+                double range = pass == 0 ? HearingManager.rangeFor(sp, level) : moveRange;
+                if (range <= 0.0) continue;
                 double dist = mob.distanceTo(sp);
                 if (dist > range) continue;
                 int walls = PerceptionUtil.countOccluders(level, mob.getEyePosition(), sp.getEyePosition());
@@ -301,10 +332,7 @@ public class PerceptionGoal extends Goal {
         // Approximate location, refreshed every second while the noise continues.
         if (investigatePos == null || ticks - lastInvestigateUpdate >= 20) {
             lastInvestigateUpdate = ticks;
-            double angle = mob.getRandom().nextDouble() * Math.PI * 2.0;
-            double r = Math.sqrt(mob.getRandom().nextDouble()) * sourceJitter;
-            startInvestigate(new Vec3(source.getX() + Math.cos(angle) * r, source.getY(),
-                    source.getZ() + Math.sin(angle) * r));
+            startInvestigateAround(source.position(), sourceJitter);
         }
     }
 }

@@ -39,6 +39,9 @@ public final class ZombieAICommand {
                                         DoubleArgumentType.getDouble(ctx, "distance")))))
                 .then(Commands.literal("status")
                         .executes(ctx -> status(ctx.getSource())))
+                .then(Commands.literal("meter")
+                        .requires(ZombieAICommand::canConfigure)
+                        .executes(ctx -> meter(ctx.getSource())))
                 .then(Commands.literal("debug")
                         .requires(ZombieAICommand::canConfigure)
                         .executes(ctx -> debug(ctx.getSource())))
@@ -91,6 +94,8 @@ public final class ZombieAICommand {
                         + " Sight: " + fmt(ZombieAIConfig.sight()) + " blocks\n"
                         + " Hearing: " + fmt(ZombieAIConfig.hearing()) + " blocks ("
                         + fmt(ZombieAIConfig.WALL_ATTENUATION.get()) + " extra per solid block)\n"
+                        + " Voice: whisper " + fmt(ZombieAIConfig.WHISPER_RANGE.get()) + ", talking " + fmt(ZombieAIConfig.hearing())
+                        + ", shouting " + fmt(ZombieAIConfig.SHOUT_RANGE.get()) + " blocks\n"
                         + " Limits: " + fmt(ZombieAIConfig.minDistance()) + " - " + fmt(ZombieAIConfig.maxDistance()) + " blocks\n"
                         + " " + voice), false);
         return 1;
@@ -111,6 +116,22 @@ public final class ZombieAICommand {
         ZombieAIEvents.refreshAll(src.getServer());
         src.sendSuccess(() -> Component.literal("Zombie AI config reloaded. Sight "
                 + fmt(ZombieAIConfig.sight()) + ", hearing " + fmt(ZombieAIConfig.hearing()) + " blocks."), true);
+        return 1;
+    }
+
+    /** Live mic loudness meter (action bar), for calibrating whisperMaxDb / shoutMinDb. */
+    private static int meter(CommandSourceStack src) {
+        ServerPlayer player;
+        try {
+            player = src.getPlayerOrException();
+        } catch (CommandSyntaxException e) {
+            src.sendFailure(Component.literal("Run this command as a player."));
+            return 0;
+        }
+        boolean on = HearingManager.toggleMeter(player.getUUID());
+        src.sendSuccess(() -> Component.literal(on
+                ? "Mic meter ON: it shows above your hotbar while you talk. Run /zombieai meter again to turn it off."
+                : "Mic meter OFF."), false);
         return 1;
     }
 
@@ -160,10 +181,11 @@ public final class ZombieAICommand {
                     .append(": distance ").append(fmt(dist))
                     .append(", solid blocks between ").append(walls)
                     .append(", effective ").append(fmt(effective))
-                    .append(" vs hearing ").append(fmt(ZombieAIConfig.hearing()))
-                    .append(effective <= ZombieAIConfig.hearing() ? " (AUDIBLE)" : " (too far/muffled)").append("\n");
+                    .append(" vs your voice range ").append(fmt(HearingManager.rangeFor(player, level)))
+                    .append(effective <= HearingManager.rangeFor(player, level) ? " (AUDIBLE)" : " (too far/muffled)").append("\n");
             sb.append(" [3] AI installed: ").append(goal != null ? "yes" : "NO (mod goal missing!)")
-                    .append(", has target: ").append(nearest.getTarget() != null ? "yes (hearing is skipped)" : "no")
+                    .append(", target: ").append(nearest.getTarget() != null
+                            ? nearest.getTarget().getType().getDescriptionId() + " (hearing is skipped)" : "none")
                     .append(", investigating: ").append(goal != null && goal.hasInvestigation() ? "yes" : "no");
         }
         String out = sb.toString();

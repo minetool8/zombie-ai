@@ -139,6 +139,11 @@ public final class ZombieAIEvents {
      * larger, raise it with a transient (non-saved) modifier so zombies can actually path that far.
      */
     public static void refreshFollowRange(Mob mob) {
+        refreshFollowRange(mob, 0.0);
+    }
+
+    /** @param extraNeeded follow range needed right now to path to a far sound (0 = none) */
+    public static void refreshFollowRange(Mob mob, double extraNeeded) {
         AttributeInstance inst = mob.getAttribute(Attributes.FOLLOW_RANGE);
         if (inst == null) return;
         AttributeModifier existing = inst.getModifier(RANGE_UUID);
@@ -149,6 +154,7 @@ public final class ZombieAIEvents {
             needed = Math.max(needed, ZombieAIConfig.BLOOD_SMELL_RANGE.get() * 0.6);   // typical blood scent reach
         }
         needed += 2.0;
+        needed = Math.max(needed, extraNeeded);
         double add = Math.max(0.0, needed - current);
 
         if (existing != null && Math.abs(existing.getAmount() - add) < 0.01) return;
@@ -192,6 +198,7 @@ public final class ZombieAIEvents {
             HearingManager.refresh(server);
             MovementNoise.refresh(server);
             BloodSense.refresh(server);
+            ShoutGroan.tick(server);
         }
     }
 
@@ -207,6 +214,7 @@ public final class ZombieAIEvents {
         HearingManager.forget(event.getEntity().getUUID());
         MovementNoise.forget(event.getEntity().getUUID());
         BloodSense.forget(event.getEntity().getUUID());
+        ShoutGroan.forget(event.getEntity().getUUID());
     }
 
     @SubscribeEvent

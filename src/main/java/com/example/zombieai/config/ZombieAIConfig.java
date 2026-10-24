@@ -19,6 +19,15 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.DoubleValue HEARING_DISTANCE;
     public static final ForgeConfigSpec.DoubleValue WALL_ATTENUATION;
     public static final ForgeConfigSpec.DoubleValue RAIN_HEARING_MULTIPLIER;
+    public static final ForgeConfigSpec.BooleanValue LOUDNESS_ENABLED;
+    public static final ForgeConfigSpec.DoubleValue WHISPER_RANGE;
+    public static final ForgeConfigSpec.DoubleValue SHOUT_RANGE;
+    public static final ForgeConfigSpec.DoubleValue WHISPER_MAX_DB;
+    public static final ForgeConfigSpec.DoubleValue SHOUT_MIN_DB;
+    public static final ForgeConfigSpec.BooleanValue SHOUT_GROWL_ENABLED;
+    public static final ForgeConfigSpec.IntValue SHOUT_GROWL_COOLDOWN_TICKS;
+    public static final ForgeConfigSpec.IntValue SHOUT_GROWL_MAX_ZOMBIES;
+    public static final ForgeConfigSpec.DoubleValue SHOUT_GROWL_VOLUME;
     public static final ForgeConfigSpec.DoubleValue MOVEMENT_NOISE_RADIUS;
     public static final ForgeConfigSpec.IntValue REACTION_DELAY_TICKS;
     public static final ForgeConfigSpec.DoubleValue INVESTIGATE_RADIUS;
@@ -77,6 +86,26 @@ public final class ZombieAIConfig {
                 .defineInRange("investigateRadius", 4.0, 0.0, 32.0);
         INVESTIGATE_TIMEOUT_TICKS = b.comment("Give up investigating after this many ticks.")
                 .defineInRange("investigateTimeoutTicks", 300, 20, 6000);
+        LOUDNESS_ENABLED = b.comment("Voice loudness decides how far zombies hear you: whisper / talking / shouting.",
+                        "false = every voice counts as normal talking.")
+                .define("loudnessEnabled", true);
+        WHISPER_RANGE = b.comment("Hearing range (blocks) for a whisper (voice quieter than whisperMaxDb).")
+                .defineInRange("whisperRange", 1.0, 0.0, 32.0);
+        SHOUT_RANGE = b.comment("Hearing range (blocks) for shouting (voice louder than shoutMinDb).")
+                .defineInRange("shoutRange", 100.0, 1.0, 1024.0);
+        WHISPER_MAX_DB = b.comment("Voice quieter than this (dBFS: 0 = loudest, -100 = silence) counts as a whisper.",
+                        "These numbers depend on your mic: run /zombieai meter and talk to calibrate.")
+                .defineInRange("whisperMaxDb", -38.0, -100.0, 0.0);
+        SHOUT_MIN_DB = b.comment("Voice louder than this (dBFS) counts as shouting. Calibrate with /zombieai meter.")
+                .defineInRange("shoutMinDb", -16.0, -100.0, 0.0);
+        SHOUT_GROWL_ENABLED = b.comment("When you shout and zombies BEYOND normal talking range hear it, everyone in the shout radius hears loud growls from their direction.")
+                .define("shoutGrowlEnabled", true);
+        SHOUT_GROWL_COOLDOWN_TICKS = b.comment("Minimum ticks between growls per shouting player (20 = 1 second).")
+                .defineInRange("shoutGrowlCooldownTicks", 100, 20, 2400);
+        SHOUT_GROWL_MAX_ZOMBIES = b.comment("How many far zombies growl per shout.")
+                .defineInRange("shoutGrowlMaxZombies", 3, 1, 10);
+        SHOUT_GROWL_VOLUME = b.comment("Volume of the growl (above 1 = carries further).")
+                .defineInRange("shoutGrowlVolume", 5.0, 1.0, 16.0);
         b.pop();
 
         b.comment("Dormancy: idle zombies stand perfectly still (no walking, no head turning) but still hear.",
@@ -149,6 +178,11 @@ public final class ZombieAIConfig {
     public static double movementNoiseRange(Level level) {
         double r = MOVEMENT_NOISE_RADIUS.get();
         return level.isRaining() ? r * RAIN_HEARING_MULTIPLIER.get() : r;
+    }
+
+    /** 1.0 normally, the rain multiplier (default 0.2) while it rains. */
+    public static double rainFactor(Level level) {
+        return level.isRaining() ? RAIN_HEARING_MULTIPLIER.get() : 1.0;
     }
 
     // ---- setters used by the command (caller validates the range) ----
