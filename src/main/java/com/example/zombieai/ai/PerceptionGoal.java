@@ -197,7 +197,7 @@ public class PerceptionGoal extends Goal {
         List<ServerPlayer> speakers = HearingManager.speakers();
         if (speakers.isEmpty()) return;
 
-        double hearing = ZombieAIConfig.hearing();
+        double hearing = ZombieAIConfig.hearing(level);
         double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
 
         ServerPlayer loudest = null;
