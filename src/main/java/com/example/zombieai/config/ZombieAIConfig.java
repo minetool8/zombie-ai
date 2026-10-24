@@ -10,6 +10,8 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec SPEC;
 
     public static final ForgeConfigSpec.DoubleValue SIGHT_DISTANCE;
+    public static final ForgeConfigSpec.DoubleValue FIELD_OF_VIEW;
+    public static final ForgeConfigSpec.DoubleValue SNEAK_SIGHT_MULTIPLIER;
     public static final ForgeConfigSpec.IntValue LOSE_SIGHT_GRACE_TICKS;
     public static final ForgeConfigSpec.BooleanValue INVESTIGATE_LAST_SEEN;
     public static final ForgeConfigSpec.BooleanValue USE_VISIBILITY_MODIFIERS;
@@ -17,9 +19,14 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.DoubleValue HEARING_DISTANCE;
     public static final ForgeConfigSpec.DoubleValue WALL_ATTENUATION;
     public static final ForgeConfigSpec.DoubleValue RAIN_HEARING_MULTIPLIER;
+    public static final ForgeConfigSpec.DoubleValue MOVEMENT_NOISE_RADIUS;
     public static final ForgeConfigSpec.IntValue REACTION_DELAY_TICKS;
     public static final ForgeConfigSpec.DoubleValue INVESTIGATE_RADIUS;
     public static final ForgeConfigSpec.IntValue INVESTIGATE_TIMEOUT_TICKS;
+
+    public static final ForgeConfigSpec.BooleanValue DORMANT_AT_NIGHT;
+    public static final ForgeConfigSpec.BooleanValue DORMANT_IN_RAIN;
+    public static final ForgeConfigSpec.BooleanValue DORMANT_CAN_SEE;
 
     public static final ForgeConfigSpec.DoubleValue ALERT_RADIUS;
     public static final ForgeConfigSpec.BooleanValue RALLY_AT_ATTACKER;
@@ -36,6 +43,11 @@ public final class ZombieAIConfig {
         b.comment("Visual detection").push("vision");
         SIGHT_DISTANCE = b.comment("Max distance (blocks) at which zombies/husks can SEE a player (needs clear line of sight).")
                 .defineInRange("sightDistance", 24.0, 1.0, 1024.0);
+        FIELD_OF_VIEW = b.comment("Total field of view in degrees. Zombies only NOTICE players inside this cone in front of them.",
+                        "360 = they see all around. Sneaking only shortens range; a sneaking player right in front is still seen.")
+                .defineInRange("fieldOfViewDegrees", 120.0, 10.0, 360.0);
+        SNEAK_SIGHT_MULTIPLIER = b.comment("Sight range multiplier while the target sneaks (0.1 = only 10% of normal range). 1.0 = sneaking has no effect.")
+                .defineInRange("sneakSightMultiplier", 0.1, 0.0, 1.0);
         LOSE_SIGHT_GRACE_TICKS = b.comment("Ticks a target may be hidden before the zombie drops it (prevents flicker at corners).",
                         "During this short window vanilla attack movement still uses the real position.")
                 .defineInRange("loseSightGraceTicks", 10, 0, 200);
@@ -52,12 +64,24 @@ public final class ZombieAIConfig {
                 .defineInRange("wallAttenuationPerBlock", 4.0, 0.0, 128.0);
         RAIN_HEARING_MULTIPLIER = b.comment("Hearing range multiplier while it is raining (0.2 = range reduced by 80%).")
                 .defineInRange("rainHearingMultiplier", 0.2, 0.0, 1.0);
+        MOVEMENT_NOISE_RADIUS = b.comment("Radius (blocks) at which footsteps, sprinting and jumping can be heard. Sneaking is silent. 0 disables.")
+                .defineInRange("movementNoiseRadius", 6.0, 0.0, 64.0);
         REACTION_DELAY_TICKS = b.comment("Ticks a player must be continuously audible before the zombie reacts (20 = 1s).")
                 .defineInRange("reactionDelayTicks", 0, 0, 200);
         INVESTIGATE_RADIUS = b.comment("Random error (blocks) applied to the sound location: zombies only know the APPROXIMATE spot.")
                 .defineInRange("investigateRadius", 4.0, 0.0, 32.0);
         INVESTIGATE_TIMEOUT_TICKS = b.comment("Give up investigating after this many ticks.")
                 .defineInRange("investigateTimeoutTicks", 300, 20, 6000);
+        b.pop();
+
+        b.comment("Dormancy: idle zombies stand perfectly still (no walking, no head turning) but still hear.",
+                        "Zombies that are chasing or investigating are never stopped.").push("dormancy");
+        DORMANT_AT_NIGHT = b.comment("Idle zombies freeze at night (normal day/night dimensions only).")
+                .define("dormantAtNight", true);
+        DORMANT_IN_RAIN = b.comment("Idle zombies freeze while it rains.")
+                .define("dormantInRain", true);
+        DORMANT_CAN_SEE = b.comment("A frozen zombie can still notice players inside its (fixed) field of view.")
+                .define("dormantCanSee", true);
         b.pop();
 
         b.comment("Pack alert: a zombie hurt by a player it cannot see calls its neighbours").push("alert");
@@ -100,6 +124,12 @@ public final class ZombieAIConfig {
     public static double hearing(Level level) {
         double h = hearing();
         return level.isRaining() ? h * RAIN_HEARING_MULTIPLIER.get() : h;
+    }
+
+    /** Range at which steps, sprinting and jumps are heard (also reduced by rain). */
+    public static double movementNoiseRange(Level level) {
+        double r = MOVEMENT_NOISE_RADIUS.get();
+        return level.isRaining() ? r * RAIN_HEARING_MULTIPLIER.get() : r;
     }
 
     // ---- setters used by the command (caller validates the range) ----

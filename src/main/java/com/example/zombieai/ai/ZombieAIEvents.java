@@ -6,6 +6,7 @@ import com.example.zombieai.config.ZombieAIConfig;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
@@ -18,6 +19,7 @@ import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -115,6 +117,7 @@ public final class ZombieAIEvents {
         PerceptionGoal perception = new PerceptionGoal(mob);
         mob.targetSelector.addGoal(1, perception);
         mob.goalSelector.addGoal(3, new InvestigateSoundGoal(mob, perception));
+        mob.goalSelector.addGoal(1, new DormantGoal(mob, perception));
     }
 
     /**
@@ -169,12 +172,21 @@ public final class ZombieAIEvents {
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server != null) {
             HearingManager.refresh(server);
+            MovementNoise.refresh(server);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onJump(LivingEvent.LivingJumpEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            MovementNoise.markJump(player);
         }
     }
 
     @SubscribeEvent
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         HearingManager.forget(event.getEntity().getUUID());
+        MovementNoise.forget(event.getEntity().getUUID());
     }
 
     @SubscribeEvent

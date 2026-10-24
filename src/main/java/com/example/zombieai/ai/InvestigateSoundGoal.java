@@ -17,7 +17,7 @@ public class InvestigateSoundGoal extends Goal {
     public InvestigateSoundGoal(Mob mob, PerceptionGoal perception) {
         this.mob = mob;
         this.perception = perception;
-        setFlags(EnumSet.of(Flag.MOVE));
+        setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
     @Override
@@ -40,6 +40,7 @@ public class InvestigateSoundGoal extends Goal {
     public void tick() {
         Vec3 pos = perception.investigatePos();
         if (pos == null) return;
+        mob.getLookControl().setLookAt(pos.x, pos.y + 1.0, pos.z);   // turn toward the sound
 
         if (mob.distanceToSqr(pos) < 2.5 * 2.5) {
             perception.clearInvestigate(); // arrived, nothing here

@@ -15,31 +15,63 @@ public final class PerceptionUtil {
     private PerceptionUtil() {}
 
     /**
-     * Pure line-of-sight check: within range AND an unobstructed visual ray from the mob's eyes
-     * to one of three points on the target. VISUAL clipping lets sight pass through glass.
-     * Hearing never calls this and never grants vision.
+     * Vision check: within range, (optionally) inside the mob's field of view, and an unobstructed
+     * visual ray from the mob's eyes to one of three points on the target.
+     * VISUAL clipping lets sight pass through glass. Hearing never calls this.
+     *
+     * @param useFov true when first noticing someone (must be in front of the zombie);
+     *               false when it is already tracking the target (it turns to follow it).
      */
-    public static boolean canSee(Mob mob, LivingEntity target, double sightDistance) {
+    public static boolean canSee(Mob mob, LivingEntity target, double sightDistance, boolean useFov) {
         double range = sightDistance;
         if (ZombieAIConfig.USE_VISIBILITY_MODIFIERS.get()) {
-            range *= target.getVisibilityPercent(mob);
+            double vis = target.getVisibilityPercent(mob);   // invisibility, mob heads, ...
+            if (target.isDiscrete()) {
+                vis /= 0.8;                                  // drop vanilla's own sneak factor, we use ours below
+            }
+            range *= vis;
+        }
+        if (target.isDiscrete()) {
+            range *= ZombieAIConfig.SNEAK_SIGHT_MULTIPLIER.get();   // sneaking: only ~10% range, but not invisible
         }
         if (mob.distanceToSqr(target) > range * range) {
             return false;
         }
         Level level = mob.level();
         Vec3 from = mob.getEyePosition();
+        Vec3 view = mob.getViewVector(1.0F);   // where the head is facing
+        double cosHalfFov = Math.cos(Math.toRadians(ZombieAIConfig.FIELD_OF_VIEW.get() * 0.5));
+
         Vec3[] points = {
                 target.getEyePosition(),
                 target.position().add(0, target.getBbHeight() * 0.5, 0),
                 target.position().add(0, 0.2, 0)
         };
         for (Vec3 to : points) {
+            if (useFov) {
+                Vec3 dir = to.subtract(from);
+                double len = dir.length();
+                if (len > 1.0E-4 && view.dot(dir) / len < cosHalfFov) {
+                    continue; // outside the field of view
+                }
+            }
             BlockHitResult hit = level.clip(new ClipContext(from, to,
                     ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, mob));
             if (hit.getType() == HitResult.Type.MISS) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    /** True while idle zombies should be frozen: night or rain (only in dimensions that have them). */
+    public static boolean isDormantTime(Level level) {
+        if (ZombieAIConfig.DORMANT_IN_RAIN.get() && level.dimensionType().hasSkyLight() && level.isRaining()) {
+            return true;
+        }
+        if (ZombieAIConfig.DORMANT_AT_NIGHT.get() && !level.dimensionType().hasFixedTime()) {
+            long t = level.getDayTime() % 24000L;
+            return t >= 13000L && t < 23000L;
         }
         return false;
     }
