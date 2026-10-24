@@ -37,6 +37,8 @@ public class PerceptionGoal extends Goal {
     private int lastInvestigateUpdate = -1000;
 
     private LivingEntity lastTarget;
+    /** The player target we chose ourselves (sight, blood, retaliation). Anything else was set by another mod. */
+    private Player ownedTarget;
 
     private int firstHeard = -1;
     private int lastAudible = -1000;
@@ -96,11 +98,14 @@ public class PerceptionGoal extends Goal {
 
         LivingEntity target = mob.getTarget();
         if (target instanceof Player player) {
-            superviseTarget(player, sight);
+            superviseTarget(level, player, sight);
         } else if (target == null) {
+            ownedTarget = null;
+            // Blood smell beats sight, field of view and sleep.
+            boolean found = acquireByBlood(level);
             // Frozen zombies keep their (fixed) field of view unless dormantCanSee is off.
             boolean mayLook = !PerceptionUtil.isDormantTime(level) || ZombieAIConfig.DORMANT_CAN_SEE.get();
-            boolean found = mayLook && acquireTarget(level, sight);
+            found = found || (mayLook && acquireTarget(level, sight));
             if (!found) {
                 processHearing(level);   // hearing always works, day or night
             }
@@ -128,7 +133,27 @@ public class PerceptionGoal extends Goal {
         return true;
     }
 
+    /** Smelling blood: target a bleeding player in smell range, no line of sight or facing needed. */
+    private boolean acquireByBlood(ServerLevel level) {
+        if (!ZombieAIConfig.BLOOD_SMELL_ENABLED.get()) return false;
+        Player best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (Player p : level.players()) {
+            if (!EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(p) || !p.isAlive()) continue;
+            double smell = BloodSense.smellRange(p, level.getServer());
+            if (smell <= 0.0) continue;
+            double d = mob.distanceTo(p);
+            if (d > smell || d >= bestDist || !mob.canAttack(p)) continue;
+            best = p;
+            bestDist = d;
+        }
+        if (best == null) return false;
+        setVisualTarget(best);
+        return true;
+    }
+
     private void setVisualTarget(Player p) {
+        ownedTarget = p;
         mob.setTarget(p);
         lastSeenPos = p.position();
         unseenTicks = 0;
@@ -136,7 +161,7 @@ public class PerceptionGoal extends Goal {
         clearInvestigate();
     }
 
-    private void superviseTarget(Player player, double sight) {
+    private void superviseTarget(ServerLevel level, Player player, double sight) {
         if (!EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(player) || !player.isAlive()
                 || player.level() != mob.level()) {
             mob.setTarget(null);
@@ -144,6 +169,24 @@ public class PerceptionGoal extends Goal {
             unseenTicks = 0;
             lastSeenPos = null;
             return;
+        }
+        // Blood: while it smells the player it keeps following, even without seeing them.
+        double smell = BloodSense.smellRange(player, level.getServer());
+        if (smell > 0.0 && mob.distanceTo(player) <= smell) {
+            ownedTarget = player;
+            unseenTicks = 0;
+            lastSeenPos = player.position();
+            return;
+        }
+        // A target set by ANOTHER mod (e.g. Zombie Awareness' own sight hunting) must pass our vision rules.
+        if (player != ownedTarget) {
+            if (ZombieAIConfig.VALIDATE_FOREIGN_TARGETS.get()
+                    && !PerceptionUtil.canSee(mob, player, sight, true)) {
+                mob.setTarget(null);
+                mob.getNavigation().stop();
+                return;
+            }
+            ownedTarget = player;
         }
         if (PerceptionUtil.canSee(mob, player, sight, false)) {   // already tracking: it turns to follow
             unseenTicks = 0;
@@ -162,6 +205,7 @@ public class PerceptionGoal extends Goal {
             }
             lastSeenPos = null;
             unseenTicks = 0;
+            ownedTarget = null;
         }
     }
 

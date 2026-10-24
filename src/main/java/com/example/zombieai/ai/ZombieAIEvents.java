@@ -25,6 +25,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.server.ServerLifecycleHooks;
 
+import java.util.ArrayList;
 import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = ZombieAIMod.MODID)
@@ -44,6 +45,7 @@ public final class ZombieAIEvents {
         if (!ZombieScale.applies(entity) || !(entity instanceof Mob mob)) return;
 
         if (!event.getLevel().isClientSide()) {
+            stripForeignSpeedBoost(mob);
             rollIfNeeded(mob);
             installGoals(mob);
             refreshFollowRange(mob);
@@ -53,6 +55,18 @@ public final class ZombieAIEvents {
     }
 
     // ------------------------------------------------------ random attributes
+
+    /** Zombie Awareness adds its own random speed bonus to zombies; it would stack on our distribution. */
+    private static void stripForeignSpeedBoost(Mob mob) {
+        if (!ZombieAIConfig.STRIP_ZA_SPEED_BOOST.get()) return;
+        AttributeInstance inst = mob.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (inst == null) return;
+        for (AttributeModifier m : new ArrayList<>(inst.getModifiers())) {
+            if ("ZA speed boost".equals(m.getName())) {
+                inst.removeModifier(m);
+            }
+        }
+    }
 
     private static void rollIfNeeded(Mob mob) {
         CompoundTag data = mob.getPersistentData();   // saved with the entity -> no reroll after reload
@@ -130,7 +144,11 @@ public final class ZombieAIEvents {
         AttributeModifier existing = inst.getModifier(RANGE_UUID);
         double current = inst.getValue() - (existing != null ? existing.getAmount() : 0.0);
         double needed = Math.max(ZombieAIConfig.sight(),
-                ZombieAIConfig.hearing() + ZombieAIConfig.INVESTIGATE_RADIUS.get()) + 2.0;
+                ZombieAIConfig.hearing() + ZombieAIConfig.INVESTIGATE_RADIUS.get());
+        if (ZombieAIConfig.BLOOD_SMELL_ENABLED.get()) {
+            needed = Math.max(needed, ZombieAIConfig.BLOOD_SMELL_RANGE.get() * 0.6);   // typical blood scent reach
+        }
+        needed += 2.0;
         double add = Math.max(0.0, needed - current);
 
         if (existing != null && Math.abs(existing.getAmount() - add) < 0.01) return;
@@ -173,6 +191,7 @@ public final class ZombieAIEvents {
         if (server != null) {
             HearingManager.refresh(server);
             MovementNoise.refresh(server);
+            BloodSense.refresh(server);
         }
     }
 
@@ -187,6 +206,7 @@ public final class ZombieAIEvents {
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         HearingManager.forget(event.getEntity().getUUID());
         MovementNoise.forget(event.getEntity().getUUID());
+        BloodSense.forget(event.getEntity().getUUID());
     }
 
     @SubscribeEvent

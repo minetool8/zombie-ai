@@ -31,6 +31,11 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.DoubleValue ALERT_RADIUS;
     public static final ForgeConfigSpec.BooleanValue RALLY_AT_ATTACKER;
 
+    public static final ForgeConfigSpec.BooleanValue BLOOD_SMELL_ENABLED;
+    public static final ForgeConfigSpec.DoubleValue BLOOD_SMELL_RANGE;
+    public static final ForgeConfigSpec.BooleanValue VALIDATE_FOREIGN_TARGETS;
+    public static final ForgeConfigSpec.BooleanValue STRIP_ZA_SPEED_BOOST;
+
     public static final ForgeConfigSpec.DoubleValue MIN_DISTANCE;
     public static final ForgeConfigSpec.DoubleValue MAX_DISTANCE;
     public static final ForgeConfigSpec.IntValue COMMAND_PERMISSION_LEVEL;
@@ -90,6 +95,20 @@ public final class ZombieAIConfig {
         RALLY_AT_ATTACKER = b.comment("true = neighbours gather near where the ATTACKER was (approximate, uses investigateRadius).",
                         "false = neighbours gather where the hurt zombie is standing.")
                 .define("rallyAtAttacker", true);
+        b.pop();
+
+        b.comment("Blood smell (uses the Zombie Awareness mod's blood scents)").push("blood");
+        BLOOD_SMELL_ENABLED = b.comment("A bleeding player is smelled and followed even when unseen, through walls, from behind, at night or in rain.")
+                .define("bloodSmellEnabled", true);
+        BLOOD_SMELL_RANGE = b.comment("Smell range scale in blocks. A fresh Zombie Awareness blood scent (strength 60) reaches about 60% of this, fading over 30 seconds.")
+                .defineInRange("bloodSmellRange", 64.0, 1.0, 256.0);
+        b.pop();
+
+        b.comment("Compatibility with Zombie Awareness").push("compat");
+        VALIDATE_FOREIGN_TARGETS = b.comment("A player targeted by ANOTHER mod must still pass our line-of-sight / field-of-view rules (blood excepted).")
+                .define("validateForeignTargets", true);
+        STRIP_ZA_SPEED_BOOST = b.comment("Remove Zombie Awareness' random speed bonus from zombies/husks so it does not stack on our speed distribution.")
+                .define("stripZombieAwarenessSpeedBoost", true);
         b.pop();
 
         b.comment("Limits and permissions for /zombieai").push("commands");
