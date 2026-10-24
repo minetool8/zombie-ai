@@ -19,6 +19,9 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.DoubleValue INVESTIGATE_RADIUS;
     public static final ForgeConfigSpec.IntValue INVESTIGATE_TIMEOUT_TICKS;
 
+    public static final ForgeConfigSpec.DoubleValue ALERT_RADIUS;
+    public static final ForgeConfigSpec.BooleanValue RALLY_AT_ATTACKER;
+
     public static final ForgeConfigSpec.DoubleValue MIN_DISTANCE;
     public static final ForgeConfigSpec.DoubleValue MAX_DISTANCE;
     public static final ForgeConfigSpec.IntValue COMMAND_PERMISSION_LEVEL;
@@ -46,11 +49,19 @@ public final class ZombieAIConfig {
         WALL_ATTENUATION = b.comment("Extra 'effective distance' (blocks) added per solid block between zombie and speaker.")
                 .defineInRange("wallAttenuationPerBlock", 4.0, 0.0, 128.0);
         REACTION_DELAY_TICKS = b.comment("Ticks a player must be continuously audible before the zombie reacts (20 = 1s).")
-                .defineInRange("reactionDelayTicks", 10, 0, 200);
+                .defineInRange("reactionDelayTicks", 0, 0, 200);
         INVESTIGATE_RADIUS = b.comment("Random error (blocks) applied to the sound location: zombies only know the APPROXIMATE spot.")
                 .defineInRange("investigateRadius", 4.0, 0.0, 32.0);
         INVESTIGATE_TIMEOUT_TICKS = b.comment("Give up investigating after this many ticks.")
                 .defineInRange("investigateTimeoutTicks", 300, 20, 6000);
+        b.pop();
+
+        b.comment("Pack alert: a zombie hurt by a player it cannot see calls its neighbours").push("alert");
+        ALERT_RADIUS = b.comment("Radius (blocks) in which other zombies/husks are alerted. 0 disables the alert.")
+                .defineInRange("alertRadius", 32.0, 0.0, 128.0);
+        RALLY_AT_ATTACKER = b.comment("true = neighbours gather near where the ATTACKER was (approximate, uses investigateRadius).",
+                        "false = neighbours gather where the hurt zombie is standing.")
+                .define("rallyAtAttacker", true);
         b.pop();
 
         b.comment("Limits and permissions for /zombieai").push("commands");
