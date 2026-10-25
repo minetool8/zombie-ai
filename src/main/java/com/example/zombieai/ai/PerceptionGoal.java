@@ -44,6 +44,12 @@ public class PerceptionGoal extends Goal {
     private LivingEntity lastTarget;
     /** The player target we chose ourselves (sight, blood, retaliation). Anything else was set by another mod. */
     private Player ownedTarget;
+    /** Tick until which this zombie is "awake" (heard something recently) and can use its eyes. */
+    private int awakeUntil;
+    /** True while the zombie walks to a LOUD noise: it ignores its eyes and quiet noises until it gets there. */
+    private boolean loudInvestigation;
+    private double currentAudibility;
+    private int lastSourceTick = -1000;
 
     private int firstHeard = -1;
     private int lastAudible = -1000;
@@ -69,18 +75,21 @@ public class PerceptionGoal extends Goal {
     public void clearInvestigate() {
         investigatePos = null;
         investigateCenter = null;
+        loudInvestigation = false;
     }
 
     /** Idle (no target, nothing to investigate) while it is night/raining: stand still. */
     public boolean isFrozen() {
         return mob.getTarget() == null && investigatePos == null
-                && PerceptionUtil.isDormantTime(mob.level());
+                && PerceptionUtil.isStillTime(mob.level());
     }
 
     private void startInvestigate(Vec3 pos) {
         investigatePos = pos;
         investigateCenter = null;
         investigateExpiry = ticks + ZombieAIConfig.INVESTIGATE_TIMEOUT_TICKS.get();
+        wake();
+        loudInvestigation = false;
         // Pathing to a far sound needs a bigger search range (only for this zombie, only while walking there).
         ZombieAIEvents.refreshFollowRange(mob, mob.position().distanceTo(pos) + 10.0);
     }
@@ -111,13 +120,28 @@ public class PerceptionGoal extends Goal {
     // ----------------------------------------------------------------- hearing (pushed in)
 
     /**
-     * A sound reached this zombie. The NEWEST sound wins: if it is somewhere else than where the zombie
-     * is currently heading, the zombie turns and goes there immediately.
+     * A sound reached this zombie.
      *
-     * @param instant true for one-shot sounds (gunshots): no reaction delay
+     * Rules:
+     *  - A LOUD noise somewhere else beats sight: the zombie drops the player it is looking at and goes to the noise.
+     *  - While heading to a loud noise, quiet noises (walking, whispers) do not distract it.
+     *  - The newest one-shot sound (gunshot) wins. Between two ongoing sources the more audible one wins,
+     *    so two noisy players never make the zombie flip-flop.
+     *
+     * @param instant    true for one-shot sounds (gunshots): no reaction delay, newest wins
+     * @param loud       true for normal/shouted voice, sprinting and Zombie Awareness sounds
+     * @param audibility how far inside the hearing range the zombie is (blocks): bigger = clearer
      */
-    public void hear(Vec3 source, double jitter, boolean instant) {
-        if (mob.getTarget() != null) return;
+    public void hear(Vec3 source, double jitter, boolean instant, boolean loud, double audibility) {
+        LivingEntity target = mob.getTarget();
+        if (target != null) {
+            if (!loud || !ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get() || !(target instanceof Player)) return;
+            if (target.position().distanceToSqr(source) < 36.0) return;   // the noise is the target itself
+            dropTarget();
+        } else if (!loud && loudInvestigation && investigatePos != null) {
+            return;   // heading to a loud noise: a quiet one does not distract it
+        }
+
         if (!instant) {
             if (firstHeard < 0 || ticks - lastAudible > 20) {
                 firstHeard = ticks;
@@ -125,6 +149,16 @@ public class PerceptionGoal extends Goal {
             lastAudible = ticks;
             if (ticks - firstHeard < ZombieAIConfig.REACTION_DELAY_TICKS.get()) return;
         }
+
+        boolean sameSource = investigateCenter != null && investigateCenter.distanceToSqr(source) < 100.0;
+        if (investigatePos != null && !sameSource && !instant) {
+            // Another place is making noise: switch only if it is clearly clearer, or the old one went quiet.
+            boolean oldSourceQuiet = ticks - lastSourceTick > 20;
+            if (!oldSourceQuiet && audibility <= currentAudibility + 1.0) return;
+        }
+        lastSourceTick = ticks;
+        currentAudibility = audibility;
+
         boolean moved = investigateCenter == null || investigateCenter.distanceToSqr(source) > 9.0;   // > 3 blocks
         boolean due = investigatePos == null
                 || (instant && moved)
@@ -133,7 +167,16 @@ public class PerceptionGoal extends Goal {
         if (due) {
             lastInvestigateUpdate = ticks;
             startInvestigateAround(source, jitter);
+            loudInvestigation = loud;
         }
+    }
+
+    private void dropTarget() {
+        mob.setTarget(null);
+        mob.getNavigation().stop();
+        unseenTicks = 0;
+        lastSeenPos = null;
+        ownedTarget = null;
     }
 
     // ------------------------------------------------------------------ tick
@@ -156,7 +199,7 @@ public class PerceptionGoal extends Goal {
         // was already running before night fell is untouched (lastTarget was not null).
         LivingEntity current = mob.getTarget();
         if (current != null && !(current instanceof Player) && lastTarget == null
-                && PerceptionUtil.isDormantTime(level)) {
+                && PerceptionUtil.isStillTime(level)) {
             mob.setTarget(null);
             current = null;
         }
@@ -181,7 +224,7 @@ public class PerceptionGoal extends Goal {
             // Blood smell beats sight, field of view and sleep.
             boolean found = acquireByBlood(level);
             // Frozen zombies keep their (fixed) field of view unless dormantCanSee is off.
-            boolean mayLook = !PerceptionUtil.isDormantTime(level) || ZombieAIConfig.DORMANT_CAN_SEE.get();
+            boolean mayLook = visionAllowed(level);
             if (!found && mayLook) {
                 acquireTarget(level, sight);
             }
@@ -190,6 +233,25 @@ public class PerceptionGoal extends Goal {
     }
 
     // ------------------------------------------------------------------ vision
+
+    /** Keeps this zombie awake (able to see) for a while after it heard / smelled / felt something. */
+    private void wake() {
+        awakeUntil = Math.max(awakeUntil, ticks + ZombieAIConfig.AWAKE_SECONDS.get() * 20);
+    }
+
+    /**
+     * "Still until sound" mode: a zombie that has not heard anything cannot see either. Once woken it can
+     * use its eyes (field of view + line of sight as before) for awakeSeconds. Otherwise the old night/rain rule.
+     */
+    private boolean visionAllowed(ServerLevel level) {
+        if (loudInvestigation && investigatePos != null) {
+            return false;   // heading to a loud noise: what it sees does not matter
+        }
+        if (ZombieAIConfig.STILL_UNTIL_SOUND.get()) {
+            return ticks < awakeUntil;
+        }
+        return !PerceptionUtil.isDormantTime(level) || ZombieAIConfig.DORMANT_CAN_SEE.get();
+    }
 
     private boolean acquireTarget(ServerLevel level, double sight) {
         Player best = null;
@@ -229,6 +291,7 @@ public class PerceptionGoal extends Goal {
     }
 
     private void setVisualTarget(Player p) {
+        wake();
         ownedTarget = p;
         mob.setTarget(p);
         lastSeenPos = p.position();
@@ -257,7 +320,7 @@ public class PerceptionGoal extends Goal {
         // A target set by ANOTHER mod (e.g. Zombie Awareness' own sight hunting) must pass our vision rules.
         if (player != ownedTarget) {
             if (ZombieAIConfig.VALIDATE_FOREIGN_TARGETS.get()
-                    && !PerceptionUtil.canSee(mob, player, sight, true)) {
+                    && (!visionAllowed(level) || !PerceptionUtil.canSee(mob, player, sight, true))) {
                 mob.setTarget(null);
                 mob.getNavigation().stop();
                 return;

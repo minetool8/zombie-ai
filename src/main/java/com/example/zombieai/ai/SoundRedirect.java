@@ -58,18 +58,21 @@ public final class SoundRedirect {
         double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
         double jitter = Math.min(ZombieAIConfig.INVESTIGATE_RADIUS.get(), 3.0);
 
+        boolean beatsSight = ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get();   // Zombie Awareness sounds are LOUD
         for (Zombie z : level.getEntitiesOfClass(Zombie.class, new AABB(pos, pos).inflate(range),
                 ZombieScale::applies)) {
-            if (!z.isAlive() || z.getTarget() != null) continue;
+            if (!z.isAlive() || (z.getTarget() != null && !beatsSight)) continue;
             double dist = z.position().distanceTo(pos);
             if (dist > range) continue;
+            int walls = 0;
             if (perWall > 0.0) {
                 int maxWalls = (int) Math.floor((range - dist) / perWall);
-                if (PerceptionUtil.countOccluders(level, z.getEyePosition(), ear, maxWalls) > maxWalls) continue;
+                walls = PerceptionUtil.countOccluders(level, z.getEyePosition(), ear, maxWalls);
+                if (walls > maxWalls) continue;
             }
             PerceptionGoal goal = PerceptionGoal.of(z);
             if (goal != null) {
-                goal.hear(pos, jitter, true);   // instant: newest sound wins
+                goal.hear(pos, jitter, true, true, range - (dist + walls * perWall));   // instant: newest sound wins
             }
         }
     }

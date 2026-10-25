@@ -76,6 +76,11 @@ public final class PerceptionUtil {
         return false;
     }
 
+    /** True while idle zombies must stand completely still: always in "still until sound" mode, else night/rain. */
+    public static boolean isStillTime(Level level) {
+        return ZombieAIConfig.STILL_UNTIL_SOUND.get() || isDormantTime(level);
+    }
+
     /** Counts opaque solid blocks along the straight line between two points (for sound muffling). */
     public static int countOccluders(Level level, Vec3 from, Vec3 to) {
         return countOccluders(level, from, to, Integer.MAX_VALUE);

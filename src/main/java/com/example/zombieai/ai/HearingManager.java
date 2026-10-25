@@ -167,7 +167,8 @@ public final class HearingManager {
             LAST_MIC_PACKET.forEach((id, t) -> {
                 if (now - t <= ACTIVE_WINDOW_NANOS) {
                     ServerPlayer p = server.getPlayerList().getPlayer(id);
-                    if (p != null && p.isAlive() && !p.isSpectator() && !p.isCreative()) {
+                    if (p != null && p.isAlive() && !p.isSpectator()
+                            && (!p.isCreative() || ZombieAIConfig.CREATIVE_MAKES_NOISE.get())) {
                         list.add(p);
                     }
                 }

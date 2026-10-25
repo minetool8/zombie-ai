@@ -4,6 +4,7 @@ import com.example.zombieai.config.ZombieAIConfig;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.phys.Vec3;
 
@@ -63,25 +64,35 @@ public final class SoundBroadcaster {
 
     private static void scan(ServerPlayer p, boolean voice) {
         ServerLevel level = p.serverLevel();
-        double range = voice ? HearingManager.rangeFor(p, level) : ZombieAIConfig.movementNoiseRange(level);
+        double range = voice ? HearingManager.rangeFor(p, level)
+                : MovementNoise.radiusOf(p.getUUID()) * ZombieAIConfig.rainFactor(level);   // rain muffles steps too
         if (range <= 0.0) return;
         double radius = ZombieAIConfig.INVESTIGATE_RADIUS.get();
-        double jitter = voice ? radius : Math.min(radius, 2.0);   // footsteps are heard more precisely
+        double jitter = voice ? radius : Math.min(radius, 1.5);   // footsteps are heard more precisely
         double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
         Vec3 ear = p.getEyePosition();
 
+        // Normal/shouted voice and sprinting are LOUD: they can pull a zombie away from a player it is looking at.
+        boolean loud = voice ? HearingManager.tierOf(p.getUUID()) != HearingManager.Tier.WHISPER
+                : MovementNoise.isLoud(p.getUUID());
+        boolean beatsSight = loud && ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get();
+
         for (Zombie z : level.getEntitiesOfClass(Zombie.class, p.getBoundingBox().inflate(range),
                 ZombieScale::applies)) {
-            if (!z.isAlive() || z.getTarget() != null) continue;
+            if (!z.isAlive()) continue;
+            LivingEntity target = z.getTarget();
+            if (target != null && (!beatsSight || target == p)) continue;   // busy, or already after this very player
             double dist = z.distanceTo(p);
             if (dist > range) continue;
+            int walls = 0;
             if (perWall > 0.0) {
                 int maxWalls = (int) Math.floor((range - dist) / perWall);
-                if (PerceptionUtil.countOccluders(level, z.getEyePosition(), ear, maxWalls) > maxWalls) continue;
+                walls = PerceptionUtil.countOccluders(level, z.getEyePosition(), ear, maxWalls);
+                if (walls > maxWalls) continue;
             }
             PerceptionGoal goal = PerceptionGoal.of(z);
             if (goal != null) {
-                goal.hear(p.position(), jitter, false);
+                goal.hear(p.position(), jitter, false, loud, range - (dist + walls * perWall));
             }
         }
     }

@@ -6,11 +6,10 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import java.util.EnumSet;
 
 /**
- * At night / in rain an idle zombie (no target, not investigating) stands completely still:
- * it holds the MOVE and LOOK flags at high priority, so wandering, village walking and
- * random head turning cannot run. Hearing and vision keep working in PerceptionGoal;
- * as soon as the zombie gets a target or something to investigate, this goal stops by itself.
- * A zombie that is already chasing is never frozen.
+ * An idle zombie (no target, nothing to investigate) stands completely still: no wandering, no walking
+ * through villages, no random head turning. It holds the MOVE and LOOK flags at high priority, and it also
+ * cancels any path another mod (e.g. Zombie Awareness light attraction) tries to give it.
+ * It only moves again when PerceptionGoal gives it something to do: a sound, blood, being hurt, or a target.
  */
 public class DormantGoal extends Goal {
     private final Mob mob;
@@ -35,5 +34,12 @@ public class DormantGoal extends Goal {
     @Override
     public void start() {
         mob.getNavigation().stop();
+    }
+
+    @Override
+    public void tick() {
+        if (!mob.getNavigation().isDone()) {
+            mob.getNavigation().stop();   // no walking "at any cost" while frozen
+        }
     }
 }

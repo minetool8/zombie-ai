@@ -25,11 +25,15 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.DoubleValue WHISPER_BIAS_DB;
     public static final ForgeConfigSpec.DoubleValue SHOUT_BIAS_DB;
     public static final ForgeConfigSpec.BooleanValue REDIRECT_TO_NEWEST_SOUND;
+    public static final ForgeConfigSpec.BooleanValue LOUD_NOISE_BEATS_SIGHT;
     public static final ForgeConfigSpec.BooleanValue SHOUT_GROWL_ENABLED;
     public static final ForgeConfigSpec.IntValue SHOUT_GROWL_COOLDOWN_TICKS;
     public static final ForgeConfigSpec.IntValue SHOUT_GROWL_MAX_ZOMBIES;
     public static final ForgeConfigSpec.DoubleValue SHOUT_GROWL_VOLUME;
-    public static final ForgeConfigSpec.DoubleValue MOVEMENT_NOISE_RADIUS;
+    public static final ForgeConfigSpec.DoubleValue WALK_NOISE_RADIUS;
+    public static final ForgeConfigSpec.DoubleValue SPRINT_NOISE_RADIUS;
+    public static final ForgeConfigSpec.DoubleValue SNEAK_NOISE_RADIUS;
+    public static final ForgeConfigSpec.BooleanValue CREATIVE_MAKES_NOISE;
     public static final ForgeConfigSpec.IntValue REACTION_DELAY_TICKS;
     public static final ForgeConfigSpec.DoubleValue INVESTIGATE_RADIUS;
     public static final ForgeConfigSpec.IntValue INVESTIGATE_TIMEOUT_TICKS;
@@ -37,6 +41,8 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.BooleanValue DORMANT_AT_NIGHT;
     public static final ForgeConfigSpec.BooleanValue DORMANT_IN_RAIN;
     public static final ForgeConfigSpec.BooleanValue DORMANT_CAN_SEE;
+    public static final ForgeConfigSpec.BooleanValue STILL_UNTIL_SOUND;
+    public static final ForgeConfigSpec.IntValue AWAKE_SECONDS;
 
     public static final ForgeConfigSpec.DoubleValue ALERT_RADIUS;
     public static final ForgeConfigSpec.BooleanValue RALLY_AT_ATTACKER;
@@ -79,8 +85,15 @@ public final class ZombieAIConfig {
                 .defineInRange("wallAttenuationPerBlock", 4.0, 0.0, 128.0);
         RAIN_HEARING_MULTIPLIER = b.comment("Hearing range multiplier while it is raining (0.2 = range reduced by 80%).")
                 .defineInRange("rainHearingMultiplier", 0.2, 0.0, 1.0);
-        MOVEMENT_NOISE_RADIUS = b.comment("Radius (blocks) at which footsteps, sprinting and jumping can be heard. Sneaking is silent. 0 disables.")
-                .defineInRange("movementNoiseRadius", 6.0, 0.0, 64.0);
+        WALK_NOISE_RADIUS = b.comment("Zombies hear a WALKING player (and jumps) within this many blocks. 0 disables.")
+                .defineInRange("walkNoiseRadius", 8.0, 0.0, 64.0);
+        SPRINT_NOISE_RADIUS = b.comment("Zombies hear a SPRINTING player within this many blocks.")
+                .defineInRange("sprintNoiseRadius", 20.0, 0.0, 128.0);
+        SNEAK_NOISE_RADIUS = b.comment("Zombies hear a SNEAKING player within this many blocks. 0 = sneaking is silent.")
+                .defineInRange("sneakNoiseRadius", 0.0, 0.0, 32.0);
+        CREATIVE_MAKES_NOISE = b.comment("Creative-mode players are heard too (voice chat, footsteps), so you can test everything.",
+                        "Zombies still never ATTACK creative players. Turn off for normal play.")
+                .define("creativeMakesNoise", true);
         REACTION_DELAY_TICKS = b.comment("Ticks a player must be continuously audible before the zombie reacts (20 = 1s).")
                 .defineInRange("reactionDelayTicks", 0, 0, 200);
         INVESTIGATE_RADIUS = b.comment("Random error (blocks) applied to the sound location: zombies only know the APPROXIMATE spot.")
@@ -102,6 +115,10 @@ public final class ZombieAIConfig {
         REDIRECT_TO_NEWEST_SOUND = b.comment("Zombie Awareness sounds (gunshots, mining, doors...): zombies that can hear a NEW sound at once turn and walk to it,",
                         "even if they were already walking to an older one.")
                 .define("redirectToNewestSound", true);
+        LOUD_NOISE_BEATS_SIGHT = b.comment("A LOUD noise (normal talking, shouting, sprinting, gunshots and other Zombie Awareness sounds) somewhere else beats what the zombie sees:",
+                        "it drops the player in front of it and goes to the noise instead, and ignores quiet noises and its eyes until it gets there.",
+                        "Whispers, walking and jumping are not loud enough.")
+                .define("loudNoiseBeatsSight", true);
         SHOUT_GROWL_ENABLED = b.comment("When you shout and zombies BEYOND normal talking range hear it, everyone in the shout radius hears loud growls from their direction.")
                 .define("shoutGrowlEnabled", true);
         SHOUT_GROWL_COOLDOWN_TICKS = b.comment("Minimum ticks between growls per shouting player (20 = 1 second).")
@@ -120,6 +137,13 @@ public final class ZombieAIConfig {
                 .define("dormantInRain", true);
         DORMANT_CAN_SEE = b.comment("A frozen zombie can still notice players inside its (fixed) field of view.")
                 .define("dormantCanSee", true);
+        STILL_UNTIL_SOUND = b.comment("Idle zombies stand COMPLETELY still, day and night: no wandering, no head turning, no walking at all,",
+                        "until they hear something (voice, footsteps, gunshots, mining...), smell blood, or get hurt.",
+                        "While this is on, dormantAtNight / dormantInRain / dormantCanSee are not used.")
+                .define("stillUntilSound", true);
+        AWAKE_SECONDS = b.comment("After a zombie hears something it is awake this long: it can see (inside its field of view) and so can find you.",
+                        "When the time is up and it has nothing to do, it freezes again.")
+                .defineInRange("awakeSeconds", 20, 1, 300);
         b.pop();
 
         b.comment("Pack alert: a zombie hurt by a player it cannot see calls its neighbours").push("alert");
@@ -176,12 +200,6 @@ public final class ZombieAIConfig {
     public static double hearing(Level level) {
         double h = hearing();
         return level.isRaining() ? h * RAIN_HEARING_MULTIPLIER.get() : h;
-    }
-
-    /** Range at which steps, sprinting and jumps are heard (also reduced by rain). */
-    public static double movementNoiseRange(Level level) {
-        double r = MOVEMENT_NOISE_RADIUS.get();
-        return level.isRaining() ? r * RAIN_HEARING_MULTIPLIER.get() : r;
     }
 
     /** 1.0 normally, the rain multiplier (default 0.2) while it rains. */
