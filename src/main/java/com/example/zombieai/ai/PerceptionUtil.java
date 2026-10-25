@@ -78,6 +78,11 @@ public final class PerceptionUtil {
 
     /** Counts opaque solid blocks along the straight line between two points (for sound muffling). */
     public static int countOccluders(Level level, Vec3 from, Vec3 to) {
+        return countOccluders(level, from, to, Integer.MAX_VALUE);
+    }
+
+    /** Same, but stops counting as soon as the result is above maxCount (saves block lookups). */
+    public static int countOccluders(Level level, Vec3 from, Vec3 to, int maxCount) {
         double length = from.distanceTo(to);
         int steps = (int) Math.ceil(length * 2.0);
         if (steps < 2) {
@@ -95,11 +100,13 @@ public final class PerceptionUtil {
             last = pos;
             if (!level.hasChunkAt(pos)) {
                 count++; // unloaded = treat as solid, and never force-load chunks
+                if (count > maxCount) return count;
                 continue;
             }
             BlockState state = level.getBlockState(pos);
             if (state.isSolidRender(level, pos)) {
                 count++;
+                if (count > maxCount) return count;
             }
         }
         return count;

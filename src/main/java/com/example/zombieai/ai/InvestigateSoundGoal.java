@@ -32,6 +32,11 @@ public class InvestigateSoundGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;   // react to a new sound point on the very next tick
+    }
+
+    @Override
     public void start() {
         pathedTo = null;
         repath = 0;

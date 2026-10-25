@@ -39,7 +39,7 @@ public final class BloodSense {
 
     private BloodSense() {}
 
-    private static EntityType<?> scentType() {
+    static EntityType<?> scentType() {
         if (!resolved) {
             resolved = true;
             if (ForgeRegistries.ENTITY_TYPES.containsKey(SCENT_ID)) {

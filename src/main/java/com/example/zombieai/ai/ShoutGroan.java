@@ -10,7 +10,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -56,14 +56,15 @@ public final class ShoutGroan {
 
             // Zombies that hear the shout from BEYOND normal talking range.
             double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
-            List<Mob> far = new ArrayList<>();
-            for (Mob m : level.getEntitiesOfClass(Mob.class, shouter.getBoundingBox().inflate(shoutRange),
+            List<Zombie> far = new ArrayList<>();
+            for (Zombie m : level.getEntitiesOfClass(Zombie.class, shouter.getBoundingBox().inflate(shoutRange),
                     ZombieScale::applies)) {
                 double dist = m.distanceTo(shouter);
                 if (dist <= normalRange || dist > shoutRange) continue;
-                double effective = dist + PerceptionUtil.countOccluders(level, m.getEyePosition(),
-                        shouter.getEyePosition()) * perWall;
-                if (effective <= shoutRange) far.add(m);
+                int maxWalls = perWall > 0.0 ? (int) Math.floor((shoutRange - dist) / perWall) : Integer.MAX_VALUE;
+                if (PerceptionUtil.countOccluders(level, m.getEyePosition(), shouter.getEyePosition(), maxWalls) <= maxWalls) {
+                    far.add(m);
+                }
             }
             if (far.isEmpty()) {
                 NEXT_ALLOWED.put(shouter.getUUID(), now + 20);   // only close zombies heard it: no growl
@@ -72,10 +73,10 @@ public final class ShoutGroan {
             NEXT_ALLOWED.put(shouter.getUUID(), now + ZombieAIConfig.SHOUT_GROWL_COOLDOWN_TICKS.get());
 
             Collections.shuffle(far);   // different zombies -> growls from different directions
-            List<Mob> chosen = far.subList(0, Math.min(ZombieAIConfig.SHOUT_GROWL_MAX_ZOMBIES.get(), far.size()));
+            List<Zombie> chosen = far.subList(0, Math.min(ZombieAIConfig.SHOUT_GROWL_MAX_ZOMBIES.get(), far.size()));
             for (ServerPlayer listener : level.players()) {
                 if (listener.distanceTo(shouter) > shoutRange) continue;   // everyone inside the shout radius
-                for (Mob zombie : chosen) {
+                for (Zombie zombie : chosen) {
                     playFrom(level, listener, zombie.position());
                 }
             }

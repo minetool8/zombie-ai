@@ -21,6 +21,7 @@ import net.minecraftforge.event.entity.EntityEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.server.ServerLifecycleHooks;
@@ -42,6 +43,9 @@ public final class ZombieAIEvents {
     @SubscribeEvent
     public static void onJoin(EntityJoinLevelEvent event) {
         Entity entity = event.getEntity();
+        if (!event.getLevel().isClientSide()) {
+            SoundRedirect.onEntityJoin(entity);   // new Zombie Awareness sound? (gunshots, mining...)
+        }
         if (!ZombieScale.applies(entity) || !(entity instanceof Mob mob)) return;
 
         if (!event.getLevel().isClientSide()) {
@@ -199,6 +203,8 @@ public final class ZombieAIEvents {
             MovementNoise.refresh(server);
             BloodSense.refresh(server);
             ShoutGroan.tick(server);
+            SoundBroadcaster.tick(server);   // voice + footsteps pushed to zombies in range
+            SoundRedirect.tick(server);      // newest Zombie Awareness sound wins
         }
     }
 
@@ -207,6 +213,11 @@ public final class ZombieAIEvents {
         if (event.getEntity() instanceof ServerPlayer player) {
             MovementNoise.markJump(player);
         }
+    }
+
+    @SubscribeEvent
+    public static void onServerStarting(ServerStartingEvent event) {
+        VoiceCalibration.load();
     }
 
     @SubscribeEvent

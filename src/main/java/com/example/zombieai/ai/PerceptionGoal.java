@@ -2,12 +2,12 @@ package com.example.zombieai.ai;
 
 import com.example.zombieai.config.ZombieAIConfig;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySelector;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.WrappedGoal;
+import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -17,13 +17,15 @@ import java.util.List;
 /**
  * Replaces vanilla player targeting (which follows players through walls).
  *
- *  VISION  : only way to set a player as target. Needs range + clear visual ray.
- *  HEARING : never sets a target. It only sets an approximate investigation point.
+ *  VISION  : only way to set a player as target (besides blood smell). Needs range + facing + clear ray.
+ *            Done every 3rd tick, each zombie on its own phase, so the server never does it all at once.
+ *  HEARING : never sets a target. SoundBroadcaster / SoundRedirect push sounds in through hear().
+ *            Nothing is polled here, so hearing costs nothing per zombie.
  *  ALERT   : a zombie hurt by a player it cannot see calls nearby zombies to gather.
  */
 public class PerceptionGoal extends Goal {
-    /** Perception runs every N ticks (2 = 10x per second). */
-    private static final int INTERVAL = 2;
+    /** Vision checks run every N ticks per zombie (staggered by entity id). */
+    private static final int SIGHT_INTERVAL = 3;
 
     private final Mob mob;
 
@@ -48,6 +50,14 @@ public class PerceptionGoal extends Goal {
 
     public PerceptionGoal(Mob mob) {
         this.mob = mob;
+    }
+
+    /** The PerceptionGoal of a zombie/husk, or null. */
+    public static PerceptionGoal of(Mob m) {
+        for (WrappedGoal w : m.targetSelector.getAvailableGoals()) {
+            if (w.getGoal() instanceof PerceptionGoal g) return g;
+        }
+        return null;
     }
 
     @Override public boolean canUse() { return true; }
@@ -98,6 +108,36 @@ public class PerceptionGoal extends Goal {
         return true;
     }
 
+    // ----------------------------------------------------------------- hearing (pushed in)
+
+    /**
+     * A sound reached this zombie. The NEWEST sound wins: if it is somewhere else than where the zombie
+     * is currently heading, the zombie turns and goes there immediately.
+     *
+     * @param instant true for one-shot sounds (gunshots): no reaction delay
+     */
+    public void hear(Vec3 source, double jitter, boolean instant) {
+        if (mob.getTarget() != null) return;
+        if (!instant) {
+            if (firstHeard < 0 || ticks - lastAudible > 20) {
+                firstHeard = ticks;
+            }
+            lastAudible = ticks;
+            if (ticks - firstHeard < ZombieAIConfig.REACTION_DELAY_TICKS.get()) return;
+        }
+        boolean moved = investigateCenter == null || investigateCenter.distanceToSqr(source) > 9.0;   // > 3 blocks
+        boolean due = investigatePos == null
+                || (instant && moved)
+                || (moved && ticks - lastInvestigateUpdate >= 10)
+                || ticks - lastInvestigateUpdate >= 20;
+        if (due) {
+            lastInvestigateUpdate = ticks;
+            startInvestigateAround(source, jitter);
+        }
+    }
+
+    // ------------------------------------------------------------------ tick
+
     @Override
     public void tick() {
         if (!(mob.level() instanceof ServerLevel level) || !mob.isAlive()) {
@@ -122,13 +162,17 @@ public class PerceptionGoal extends Goal {
         }
         lastTarget = current;
 
-        if (ticks % INTERVAL != 0) {
+        // Being hurt is handled the very tick it happens (just an int compare when nothing happened).
+        if (mob.getLastHurtByMobTimestamp() != handledHurtStamp) {
+            handleRetaliation(level, ZombieAIConfig.sight());
+        }
+
+        // Vision is spread over ticks: every zombie has its own phase.
+        if ((ticks + mob.getId()) % SIGHT_INTERVAL != 0) {
             return;
         }
 
         double sight = ZombieAIConfig.sight();
-        handleRetaliation(level, sight);
-
         LivingEntity target = mob.getTarget();
         if (target instanceof Player player) {
             superviseTarget(level, player, sight);
@@ -138,9 +182,8 @@ public class PerceptionGoal extends Goal {
             boolean found = acquireByBlood(level);
             // Frozen zombies keep their (fixed) field of view unless dormantCanSee is off.
             boolean mayLook = !PerceptionUtil.isDormantTime(level) || ZombieAIConfig.DORMANT_CAN_SEE.get();
-            found = found || (mayLook && acquireTarget(level, sight));
-            if (!found) {
-                processHearing(level);   // hearing always works, day or night
+            if (!found && mayLook) {
+                acquireTarget(level, sight);
             }
         }
         // Non-player targets (villagers, golems, turtles) are left to vanilla goals.
@@ -229,7 +272,7 @@ public class PerceptionGoal extends Goal {
         if (lastSeenPos == null) {
             lastSeenPos = player.position();
         }
-        unseenTicks += INTERVAL;
+        unseenTicks += SIGHT_INTERVAL;
         if (unseenTicks > ZombieAIConfig.LOSE_SIGHT_GRACE_TICKS.get()) {
             mob.setTarget(null);
             mob.getNavigation().stop();
@@ -268,15 +311,13 @@ public class PerceptionGoal extends Goal {
         if (radius <= 0.0) return;
         double jitter = ZombieAIConfig.INVESTIGATE_RADIUS.get();
         AABB box = mob.getBoundingBox().inflate(radius);
-        List<Mob> others = level.getEntitiesOfClass(Mob.class, box,
+        List<Zombie> others = level.getEntitiesOfClass(Zombie.class, box,
                 m -> m != mob && m.isAlive() && ZombieScale.applies(m));
-        for (Mob other : others) {
+        for (Zombie other : others) {
             if (other.distanceToSqr(mob) > radius * radius) continue;
-            for (WrappedGoal w : other.targetSelector.getAvailableGoals()) {
-                if (w.getGoal() instanceof PerceptionGoal g) {
-                    g.receiveAlert(rally, jitter);
-                    break;
-                }
+            PerceptionGoal g = of(other);
+            if (g != null) {
+                g.receiveAlert(rally, jitter);
             }
         }
     }
@@ -286,53 +327,5 @@ public class PerceptionGoal extends Goal {
         if (mob.getTarget() != null) return;
         startInvestigateAround(center, jitter);
         firstHeard = -1;
-    }
-
-    // ----------------------------------------------------------------- hearing
-
-    /** Hears player voice (range depends on how LOUD they are) and movement noise (steps, sprinting, jumping). */
-    private void processHearing(ServerLevel level) {
-        List<ServerPlayer> speakers = HearingManager.speakers();
-        List<ServerPlayer> movers = MovementNoise.noisyPlayers();
-        if (speakers.isEmpty() && movers.isEmpty()) return;
-
-        double moveRange = ZombieAIConfig.movementNoiseRange(level);  // smaller while raining
-        double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
-        double radius = ZombieAIConfig.INVESTIGATE_RADIUS.get();
-
-        ServerPlayer source = null;
-        double bestEffective = Double.MAX_VALUE;
-        double sourceJitter = radius;
-        for (int pass = 0; pass < 2; pass++) {
-            List<ServerPlayer> list = pass == 0 ? speakers : movers;
-            for (ServerPlayer sp : list) {
-                if (sp.level() != level) continue;
-                // Voice: a whisper, normal talking and a shout each reach a different distance.
-                double range = pass == 0 ? HearingManager.rangeFor(sp, level) : moveRange;
-                if (range <= 0.0) continue;
-                double dist = mob.distanceTo(sp);
-                if (dist > range) continue;
-                int walls = PerceptionUtil.countOccluders(level, mob.getEyePosition(), sp.getEyePosition());
-                double effective = dist + walls * perWall;
-                if (effective <= range && effective < bestEffective) {
-                    bestEffective = effective;
-                    source = sp;
-                    sourceJitter = pass == 0 ? radius : Math.min(radius, 2.0);   // steps are heard more precisely
-                }
-            }
-        }
-        if (source == null) return;
-
-        if (firstHeard < 0 || ticks - lastAudible > 20) {
-            firstHeard = ticks;
-        }
-        lastAudible = ticks;
-        if (ticks - firstHeard < ZombieAIConfig.REACTION_DELAY_TICKS.get()) return;
-
-        // Approximate location, refreshed every second while the noise continues.
-        if (investigatePos == null || ticks - lastInvestigateUpdate >= 20) {
-            lastInvestigateUpdate = ticks;
-            startInvestigateAround(source.position(), sourceJitter);
-        }
     }
 }

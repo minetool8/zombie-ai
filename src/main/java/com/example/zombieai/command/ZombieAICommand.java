@@ -41,9 +41,7 @@ public final class ZombieAICommand {
                         .executes(ctx -> status(ctx.getSource())))
                 .then(Commands.literal("calibrate")
                         .requires(ZombieAICommand::canConfigure)
-                        .executes(ctx -> calibrate(ctx.getSource(), HearingManager.CALIBRATION_TARGET_DB))
-                        .then(Commands.argument("db", DoubleArgumentType.doubleArg(20.0, 130.0))
-                                .executes(ctx -> calibrate(ctx.getSource(), DoubleArgumentType.getDouble(ctx, "db")))))
+                        .executes(ctx -> calibrate(ctx.getSource())))
                 .then(Commands.literal("meter")
                         .requires(ZombieAICommand::canConfigure)
                         .executes(ctx -> meter(ctx.getSource())))
@@ -99,8 +97,8 @@ public final class ZombieAICommand {
                         + " Sight: " + fmt(ZombieAIConfig.sight()) + " blocks\n"
                         + " Hearing: " + fmt(ZombieAIConfig.hearing()) + " blocks ("
                         + fmt(ZombieAIConfig.WALL_ATTENUATION.get()) + " extra per solid block)\n"
-                        + " Voice: whisper (up to " + fmt(ZombieAIConfig.WHISPER_MAX_DB.get()) + " dB) " + fmt(ZombieAIConfig.WHISPER_RANGE.get()) + ", talking " + fmt(ZombieAIConfig.hearing())
-                        + ", shouting (above " + fmt(ZombieAIConfig.SHOUT_MIN_DB.get()) + " dB) " + fmt(ZombieAIConfig.SHOUT_RANGE.get()) + " blocks\n"
+                        + " Voice: whisper (up to " + fmt(HearingManager.WHISPER_LIMIT_DB) + " dB) " + fmt(ZombieAIConfig.WHISPER_RANGE.get()) + ", talking " + fmt(ZombieAIConfig.hearing())
+                        + ", shouting (above " + fmt(HearingManager.SHOUT_LIMIT_DB) + " dB) " + fmt(ZombieAIConfig.SHOUT_RANGE.get()) + " blocks\n"
                         + " Limits: " + fmt(ZombieAIConfig.minDistance()) + " - " + fmt(ZombieAIConfig.maxDistance()) + " blocks\n"
                         + " " + voice), false);
         return 1;
@@ -124,8 +122,8 @@ public final class ZombieAICommand {
         return 1;
     }
 
-    /** 5 second calibration: map the player's normal speaking voice to a fixed dB value. */
-    private static int calibrate(CommandSourceStack src, double targetDb) {
+    /** Guided calibration: whisper, then normal voice, then shout (about 20 seconds). */
+    private static int calibrate(CommandSourceStack src) {
         ServerPlayer player;
         try {
             player = src.getPlayerOrException();
@@ -133,10 +131,9 @@ public final class ZombieAICommand {
             src.sendFailure(Component.literal("Run this command as a player."));
             return 0;
         }
-        HearingManager.startCalibration(player, targetDb);
-        src.sendSuccess(() -> Component.literal(String.format(Locale.ROOT,
-                "Calibrating for 5 seconds: keep talking at ONE steady volume now. I will treat that volume as %.0f dB.",
-                targetDb)), false);
+        HearingManager.startCalibration(player);
+        src.sendSuccess(() -> Component.literal("Voice calibration started (about 20 seconds). Follow the prompts above "
+                + "your hotbar: whisper, then talk normally, then shout. Keep voice chat on and keep talking during each step."), false);
         return 1;
     }
 
