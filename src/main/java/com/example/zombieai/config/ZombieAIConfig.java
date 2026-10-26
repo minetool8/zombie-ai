@@ -31,6 +31,11 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.IntValue SHOUT_GROWL_MAX_ZOMBIES;
     public static final ForgeConfigSpec.DoubleValue SHOUT_GROWL_VOLUME;
     public static final ForgeConfigSpec.DoubleValue WALK_NOISE_RADIUS;
+
+    // Simple Voice Radio / Speaker support
+    public static final ForgeConfigSpec.BooleanValue RADIO_ENABLED;
+    public static final ForgeConfigSpec.DoubleValue RADIO_RANGE;
+    public static final ForgeConfigSpec.BooleanValue RADIO_PRIORITY_BOOST;
     public static final ForgeConfigSpec.DoubleValue SPRINT_NOISE_RADIUS;
     public static final ForgeConfigSpec.DoubleValue SNEAK_NOISE_RADIUS;
     public static final ForgeConfigSpec.BooleanValue CREATIVE_MAKES_NOISE;
@@ -127,6 +132,16 @@ public final class ZombieAIConfig {
                 .defineInRange("shoutGrowlMaxZombies", 3, 1, 10);
         SHOUT_GROWL_VOLUME = b.comment("Volume of the growl (above 1 = carries further).")
                 .defineInRange("shoutGrowlVolume", 5.0, 1.0, 16.0);
+
+        // Simple Voice Radio / Speaker support
+        RADIO_ENABLED = b.comment("Detect Simple Voice Chat radios/speakers and treat them as sound sources.",
+                "Radios attract zombies more than normal talking but less than shouting/gunfire.")
+                .define("radioEnabled", true);
+        RADIO_RANGE = b.comment("Hearing range (blocks) for a radio/speaker.")
+                .defineInRange("radioRange", 64.0, 1.0, 1024.0);
+        RADIO_PRIORITY_BOOST = b.comment("Radio sounds act like shouting (priority 2) instead of normal talking (priority 1).",
+                "true = zombies prioritize radios over normal talking, false = radios are just normal talking.")
+                .define("radioPriorityBoost", true);
         b.pop();
 
         b.comment("Dormancy: idle zombies stand perfectly still (no walking, no head turning) but still hear.",
@@ -206,6 +221,11 @@ public final class ZombieAIConfig {
     public static double rainFactor(Level level) {
         return level.isRaining() ? RAIN_HEARING_MULTIPLIER.get() : 1.0;
     }
+
+    // ---- radio accessors ----
+    public static boolean radioEnabled() { return RADIO_ENABLED.get(); }
+    public static double radioRange() { return clamp(RADIO_RANGE.get()); }
+    public static boolean radioPriorityBoost() { return RADIO_PRIORITY_BOOST.get(); }
 
     // ---- setters used by the command (caller validates the range) ----
     public static void setSight(double v) { SIGHT_DISTANCE.set(v); SPEC.save(); }

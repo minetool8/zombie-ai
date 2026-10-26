@@ -72,7 +72,7 @@ public final class SoundRedirect {
             }
             PerceptionGoal goal = PerceptionGoal.of(z);
             if (goal != null) {
-                goal.hear(pos, jitter, true, true, range - (dist + walls * perWall));   // instant: newest sound wins
+                goal.hearGunshot(pos, jitter, range - (dist + walls * perWall));   // instant: newest sound wins
             }
         }
     }

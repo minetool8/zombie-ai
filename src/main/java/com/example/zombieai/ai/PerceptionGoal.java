@@ -22,10 +22,21 @@ import java.util.List;
  *  HEARING : never sets a target. SoundBroadcaster / SoundRedirect push sounds in through hear().
  *            Nothing is polled here, so hearing costs nothing per zombie.
  *  ALERT   : a zombie hurt by a player it cannot see calls nearby zombies to gather.
+ *
+ *  PRIORITY SYSTEM (new):
+ *  - Tier 3: GUNSHOT (instant, from TACZ/Zombie Awareness) - HIGHEST PRIORITY
+ *  - Tier 2: SHOUT / RADIO (voice shout, Simple Voice Radio speaker) - HIGH PRIORITY
+ *  - Tier 1: NORMAL (normal talking, sprinting) - MEDIUM PRIORITY
+ *  - Tier 0: WHISPER / WALK (whisper, walking, jumping) - LOW PRIORITY
+ *
+ *  Within same tier: closer sound wins.
+ *  LOUD noises (tier >= 2) can pull zombie away from visual target.
  */
 public class PerceptionGoal extends Goal {
     /** Vision checks run every N ticks per zombie (staggered by entity id). */
     private static final int SIGHT_INTERVAL = 3;
+    /** Hardcoded vision range - zombies are essentially blind beyond 1 block. */
+    private static final double HARDCODED_SIGHT_RANGE = 1.0;
 
     private final Mob mob;
 
@@ -48,6 +59,7 @@ public class PerceptionGoal extends Goal {
     private int awakeUntil;
     /** True while the zombie walks to a LOUD noise: it ignores its eyes and quiet noises until it gets there. */
     private boolean loudInvestigation;
+    private int currentPriority; // 3=gunshot, 2=shout/radio, 1=normal, 0=whisper/walk
     private double currentAudibility;
     private int lastSourceTick = -1000;
 
@@ -120,26 +132,38 @@ public class PerceptionGoal extends Goal {
     // ----------------------------------------------------------------- hearing (pushed in)
 
     /**
+     * Priority tiers:
+     * 3 = GUNSHOT (instant, from TACZ/Zombie Awareness)
+     * 2 = SHOUT / RADIO (voice shout, Simple Voice Radio speaker)
+     * 1 = NORMAL (normal talking, sprinting)
+     * 0 = WHISPER / WALK (whisper, walking, jumping)
+     */
+
+    /**
      * A sound reached this zombie.
      *
-     * Rules:
-     *  - A LOUD noise somewhere else beats sight: the zombie drops the player it is looking at and goes to the noise.
-     *  - While heading to a loud noise, quiet noises (walking, whispers) do not distract it.
-     *  - The newest one-shot sound (gunshot) wins. Between two ongoing sources the more audible one wins,
-     *    so two noisy players never make the zombie flip-flop.
+     * New Priority Rules:
+     *  - Higher priority (3 > 2 > 1 > 0) ALWAYS wins over lower priority
+     *  - Same priority: closer sound wins (higher audibility = closer)
+     *  - Gunshots (instant, priority 3) are instant and always win
+     *  - Priority >= 2 (shout/radio/gunshot) can pull zombie away from visual target
+     *  - While heading to priority >= 2, lower priority sounds don't distract
      *
+     * @param priority   3=gunshot, 2=shout/radio, 1=normal, 0=whisper/walk
      * @param instant    true for one-shot sounds (gunshots): no reaction delay, newest wins
-     * @param loud       true for normal/shouted voice, sprinting and Zombie Awareness sounds
      * @param audibility how far inside the hearing range the zombie is (blocks): bigger = clearer
      */
-    public void hear(Vec3 source, double jitter, boolean instant, boolean loud, double audibility) {
+    public void hear(Vec3 source, double jitter, int priority, boolean instant, double audibility) {
         LivingEntity target = mob.getTarget();
         if (target != null) {
-            if (!loud || !ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get() || !(target instanceof Player)) return;
+            // Priority >= 2 (shout/radio/gunshot) can pull zombie away from visual target
+            if (priority < 2 || !ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get() || !(target instanceof Player)) return;
             if (target.position().distanceToSqr(source) < 36.0) return;   // the noise is the target itself
             dropTarget();
-        } else if (!loud && loudInvestigation && investigatePos != null) {
-            return;   // heading to a loud noise: a quiet one does not distract it
+        } else if (investigatePos != null) {
+            // If already investigating, only switch if new priority is higher, or same priority but closer
+            if (priority < currentPriority) return;
+            if (priority == currentPriority && audibility <= currentAudibility + 1.0) return;
         }
 
         if (!instant) {
@@ -152,11 +176,15 @@ public class PerceptionGoal extends Goal {
 
         boolean sameSource = investigateCenter != null && investigateCenter.distanceToSqr(source) < 100.0;
         if (investigatePos != null && !sameSource && !instant) {
-            // Another place is making noise: switch only if it is clearly clearer, or the old one went quiet.
+            // Another place is making noise: switch only if higher priority, or same priority and clearly closer
             boolean oldSourceQuiet = ticks - lastSourceTick > 20;
-            if (!oldSourceQuiet && audibility <= currentAudibility + 1.0) return;
+            if (!oldSourceQuiet) {
+                if (priority < currentPriority) return;
+                if (priority == currentPriority && audibility <= currentAudibility + 1.0) return;
+            }
         }
         lastSourceTick = ticks;
+        currentPriority = priority;
         currentAudibility = audibility;
 
         boolean moved = investigateCenter == null || investigateCenter.distanceToSqr(source) > 9.0;   // > 3 blocks
@@ -167,8 +195,34 @@ public class PerceptionGoal extends Goal {
         if (due) {
             lastInvestigateUpdate = ticks;
             startInvestigateAround(source, jitter);
-            loudInvestigation = loud;
+            loudInvestigation = (priority >= 2);
         }
+    }
+
+    /** Convenience method for voice sounds (computes priority from tier). */
+    public void hear(Vec3 source, double jitter, HearingManager.Tier tier, boolean instant, double audibility) {
+        int priority = switch (tier) {
+            case SHOUT -> 2;
+            case NORMAL -> 1;
+            case WHISPER -> 0;
+        };
+        hear(source, jitter, priority, instant, audibility);
+    }
+
+    /** Convenience method for movement sounds. */
+    public void hear(Vec3 source, double jitter, boolean isSprinting, boolean instant, double audibility) {
+        int priority = isSprinting ? 1 : 0;
+        hear(source, jitter, priority, instant, audibility);
+    }
+
+    /** Convenience method for radio sounds. */
+    public void hearRadio(Vec3 source, double jitter, double audibility) {
+        hear(source, jitter, 2, false, audibility); // radio = priority 2 (like shout)
+    }
+
+    /** Convenience method for gunshot sounds (Zombie Awareness). */
+    public void hearGunshot(Vec3 source, double jitter, double audibility) {
+        hear(source, jitter, 3, true, audibility); // gunshot = priority 3, instant
     }
 
     private void dropTarget() {
@@ -215,7 +269,7 @@ public class PerceptionGoal extends Goal {
             return;
         }
 
-        double sight = ZombieAIConfig.sight();
+        double sight = HARDCODED_SIGHT_RANGE; // Hardcoded 1 block vision
         LivingEntity target = mob.getTarget();
         if (target instanceof Player player) {
             superviseTarget(level, player, sight);
@@ -356,7 +410,7 @@ public class PerceptionGoal extends Goal {
         if (mob.getTarget() != null) return;
         if (mob.getLastHurtByMob() instanceof Player p
                 && EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(p) && p.isAlive()) {
-            if (PerceptionUtil.canSee(mob, p, sight, false)) {
+            if (PerceptionUtil.canSee(mob, p, HARDCODED_SIGHT_RANGE, false)) {
                 setVisualTarget(p);
             } else {
                 // Hit by someone we cannot see: go to where they hit us from, and call the pack.

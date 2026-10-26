@@ -152,7 +152,8 @@ public final class ZombieAIEvents {
         if (inst == null) return;
         AttributeModifier existing = inst.getModifier(RANGE_UUID);
         double current = inst.getValue() - (existing != null ? existing.getAmount() : 0.0);
-        double needed = Math.max(ZombieAIConfig.sight(),
+        // Use hardcoded 1.0 block sight range instead of config
+        double needed = Math.max(1.0,
                 ZombieAIConfig.hearing() + ZombieAIConfig.INVESTIGATE_RADIUS.get());
         if (ZombieAIConfig.BLOOD_SMELL_ENABLED.get()) {
             needed = Math.max(needed, ZombieAIConfig.BLOOD_SMELL_RANGE.get() * 0.6);   // typical blood scent reach
