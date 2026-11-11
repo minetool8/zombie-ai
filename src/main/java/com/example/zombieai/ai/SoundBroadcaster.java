@@ -1,31 +1,29 @@
 package com.example.zombieai.ai;
 
 import com.example.zombieai.config.ZombieAIConfig;
-import com.example.zombieai.ai.HearingManager;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Event-driven hearing. Instead of EVERY zombie checking for noise many times a second, each noisy
- * player (talking / walking / sprinting / jumping) pushes the sound to the zombies in range, once, the
- * moment the noise starts, and then only every few ticks (or when the player has moved a few blocks).
- * Cost depends on the number of noisy players, not on the number of zombies.
+ * player (talking / walking / sprinting / jumping) and each playing speaker / radio pushes the sound to the
+ * zombies in range, once, the moment the noise starts, and then only every few ticks (or when the source
+ * has moved a few blocks). Cost depends on the number of noise sources, not on the number of zombies.
  *
- * Now also supports Simple Voice Radio / Speaker entities.
+ * Every sound is tagged with its NoiseKind (priority) and its effective distance; PerceptionGoal.hear()
+ * decides what the zombie does with it.
  */
 public final class SoundBroadcaster {
     private static final class Source {
@@ -35,10 +33,7 @@ public final class SoundBroadcaster {
 
     private static final Map<UUID, Source> VOICE = new HashMap<>();
     private static final Map<UUID, Source> STEPS = new HashMap<>();
-    private static final Map<UUID, Source> RADIOS = new HashMap<>();
-
-    private static EntityType<?> RADIO_ENTITY_TYPE = null;
-    private static boolean RADIO_TYPE_RESOLVED = false;
+    private static final Map<String, Source> RADIOS = new HashMap<>();
 
     private SoundBroadcaster() {}
 
@@ -46,9 +41,7 @@ public final class SoundBroadcaster {
         int now = server.getTickCount();
         process(HearingManager.speakers(), VOICE, true, now);
         process(MovementNoise.noisyPlayers(), STEPS, false, now);
-        if (ZombieAIConfig.radioEnabled()) {
-            processRadios(server, now);
-        }
+        processRadios(now);
     }
 
     private static void process(List<ServerPlayer> active, Map<UUID, Source> states, boolean voice, int now) {
@@ -77,104 +70,28 @@ public final class SoundBroadcaster {
         }
     }
 
-    /** Resolves the Simple Voice Chat radio/speaker entity type via reflection. */
-    private static EntityType<?> getRadioEntityType() {
-        if (RADIO_TYPE_RESOLVED) return RADIO_ENTITY_TYPE;
-        RADIO_TYPE_RESOLVED = true;
-
-        try {
-            // Simple Voice Chat registers entities under "voicechat" namespace
-            // Common entity names: "speaker", "radio", "voicechat_speaker"
-            String[] possibleNames = {"speaker", "radio", "voicechat_speaker", "voice_chat_speaker"};
-            for (String name : possibleNames) {
-                ResourceLocation rl = new ResourceLocation("voicechat", name);
-                if (BuiltInRegistries.ENTITY_TYPES.containsKey(rl)) {
-                    RADIO_ENTITY_TYPE = BuiltInRegistries.ENTITY_TYPES.get(rl);
-                    break;
-                }
-            }
-            // Also try without namespace (some mods register without namespace)
-            if (RADIO_ENTITY_TYPE == null) {
-                for (String name : possibleNames) {
-                    ResourceLocation rl = new ResourceLocation(name);
-                    if (BuiltInRegistries.ENTITY_TYPES.containsKey(rl)) {
-                        RADIO_ENTITY_TYPE = BuiltInRegistries.ENTITY_TYPES.get(rl);
-                        break;
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-            // Reflection failed, radio support disabled
-        }
-        return RADIO_ENTITY_TYPE;
-    }
-
-    private static void processRadios(MinecraftServer server, int now) {
-        EntityType<?> radioType = getRadioEntityType();
-        if (radioType == null) return;
-
-        List<Entity> activeRadios = new ArrayList<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            activeRadios.addAll(level.getEntitiesOfClass(Entity.class, e -> e.getType() == radioType));
-        }
-
-        if (activeRadios.isEmpty()) {
+    private static void processRadios(int now) {
+        List<RadioSense.Source> active = RadioSense.sources();
+        if (active.isEmpty()) {
             if (!RADIOS.isEmpty()) RADIOS.clear();
             return;
         }
-
-        // Sources that went quiet are forgotten
-        RADIOS.keySet().removeIf(id -> {
-            for (Entity e : activeRadios) {
-                if (e.getUUID().equals(id)) return false;
-            }
-            return true;
-        });
-
-        for (Entity radio : activeRadios) {
-            Source s = RADIOS.get(radio.getUUID());
-            Vec3 pos = radio.position();
-            if (s != null && now < s.nextScan && pos.distanceToSqr(s.lastPos) < 9.0) continue;
+        Set<String> keys = new HashSet<>();
+        for (RadioSense.Source r : active) {
+            String key = r.level().dimension().location() + ":" + (int) Math.floor(r.pos().x / 2.0) + ","
+                    + (int) Math.floor(r.pos().y / 2.0) + "," + (int) Math.floor(r.pos().z / 2.0);
+            keys.add(key);
+            Source s = RADIOS.get(key);
+            if (s != null && now < s.nextScan) continue;
             if (s == null) {
                 s = new Source();
-                RADIOS.put(radio.getUUID(), s);
+                RADIOS.put(key, s);
             }
-            s.lastPos = pos;
-            s.nextScan = now + 4; // same as voice
-            scanRadio(radio, (ServerLevel) radio.level());
+            s.lastPos = r.pos();
+            s.nextScan = now + 4;   // same rhythm as voice
+            scanRadio(r.level(), r.pos());
         }
-    }
-
-    private static void scanRadio(Entity radio, ServerLevel level) {
-        double range = ZombieAIConfig.radioRange() * ZombieAIConfig.rainFactor(level);
-        if (range <= 0.0) return;
-        double radius = ZombieAIConfig.INVESTIGATE_RADIUS.get();
-        double jitter = radius; // radios are heard with same precision as voice
-        double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
-        Vec3 ear = radio.position().add(0.0, 1.0, 0.0); // radio position + 1 block up
-
-        // Radios are priority 2 (like shouting) if priority boost is enabled
-        boolean beatsSight = ZombieAIConfig.radioPriorityBoost() && ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get();
-
-        for (Zombie z : level.getEntitiesOfClass(Zombie.class, radio.getBoundingBox().inflate(range),
-                ZombieScale::applies)) {
-            if (!z.isAlive()) continue;
-            LivingEntity target = z.getTarget();
-            if (target != null && (!beatsSight || target == radio)) continue;
-            double dist = z.distanceTo(radio);
-            if (dist > range) continue;
-            int walls = 0;
-            if (perWall > 0.0) {
-                int maxWalls = (int) Math.floor((range - dist) / perWall);
-                walls = PerceptionUtil.countOccluders(level, z.getEyePosition(), ear, maxWalls);
-                if (walls > maxWalls) continue;
-            }
-            PerceptionGoal goal = PerceptionGoal.of(z);
-            if (goal != null) {
-                double audibility = range - (dist + walls * perWall);
-                goal.hearRadio(radio.position(), jitter, audibility);
-            }
-        }
+        RADIOS.keySet().retainAll(keys);   // a speaker that went quiet is forgotten, its next noise is handled at once
     }
 
     private static void scan(ServerPlayer p, boolean voice) {
@@ -187,15 +104,19 @@ public final class SoundBroadcaster {
         double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
         Vec3 ear = p.getEyePosition();
 
-        // Determine priority and beatsSight based on voice/movement
-        HearingManager.Tier tier = voice ? HearingManager.tierOf(p.getUUID()) : null;
-        boolean isSprinting = !voice && MovementNoise.isLoud(p.getUUID());
-        boolean beatsSight = false;
+        // What kind of noise is this? It decides the priority: shout > normal talking > walking / whisper.
+        NoiseKind kind;
         if (voice) {
-            beatsSight = (tier == HearingManager.Tier.SHOUT || tier == HearingManager.Tier.NORMAL) && ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get();
+            kind = switch (HearingManager.tierOf(p.getUUID())) {
+                case WHISPER -> NoiseKind.WHISPER;
+                case NORMAL -> NoiseKind.VOICE;
+                case SHOUT -> NoiseKind.SHOUT;
+            };
         } else {
-            beatsSight = isSprinting && ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get();
+            kind = MovementNoise.isLoud(p.getUUID()) ? NoiseKind.SPRINT : NoiseKind.WALK;
         }
+        // Loud noises (talking, shouting, sprinting) can pull a zombie away from a player it is looking at.
+        boolean beatsSight = kind.loud() && ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get();
 
         for (Zombie z : level.getEntitiesOfClass(Zombie.class, p.getBoundingBox().inflate(range),
                 ZombieScale::applies)) {
@@ -212,12 +133,35 @@ public final class SoundBroadcaster {
             }
             PerceptionGoal goal = PerceptionGoal.of(z);
             if (goal != null) {
-                double audibility = range - (dist + walls * perWall);
-                if (voice) {
-                    goal.hear(p.position(), jitter, tier, false, audibility);
-                } else {
-                    goal.hear(p.position(), jitter, isSprinting, false, audibility);
-                }
+                goal.hear(p.position(), jitter, false, kind, dist + walls * perWall);
+            }
+        }
+    }
+
+    /** A speaker / radio is playing at pos: every zombie that can hear it gets it as a RADIO noise. */
+    private static void scanRadio(ServerLevel level, Vec3 pos) {
+        double range = ZombieAIConfig.radioRange() * ZombieAIConfig.rainFactor(level);
+        if (range <= 0.0) return;
+        double jitter = ZombieAIConfig.INVESTIGATE_RADIUS.get();
+        double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
+        Vec3 ear = pos.add(0.0, 1.0, 0.0);
+        boolean beatsSight = ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get();
+
+        for (Zombie z : level.getEntitiesOfClass(Zombie.class, new AABB(pos, pos).inflate(range),
+                ZombieScale::applies)) {
+            if (!z.isAlive()) continue;
+            if (z.getTarget() != null && !beatsSight) continue;
+            double dist = z.position().distanceTo(pos);
+            if (dist > range) continue;
+            int walls = 0;
+            if (perWall > 0.0) {
+                int maxWalls = (int) Math.floor((range - dist) / perWall);
+                walls = PerceptionUtil.countOccluders(level, z.getEyePosition(), ear, maxWalls);
+                if (walls > maxWalls) continue;
+            }
+            PerceptionGoal goal = PerceptionGoal.of(z);
+            if (goal != null) {
+                goal.hear(pos, jitter, false, NoiseKind.RADIO, dist + walls * perWall);
             }
         }
     }

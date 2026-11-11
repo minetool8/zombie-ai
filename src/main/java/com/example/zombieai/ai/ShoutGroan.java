@@ -58,7 +58,7 @@ public final class ShoutGroan {
             // Zombies that hear the shout from BEYOND normal talking range.
             double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
             List<Zombie> far = new ArrayList<>();
-            Map<Zombie, Double> audibility = new HashMap<>();
+            Map<Zombie, Double> effDist = new HashMap<>();
             for (Zombie m : level.getEntitiesOfClass(Zombie.class, shouter.getBoundingBox().inflate(shoutRange),
                     ZombieScale::applies)) {
                 double dist = m.distanceTo(shouter);
@@ -67,7 +67,7 @@ public final class ShoutGroan {
                 int walls = PerceptionUtil.countOccluders(level, m.getEyePosition(), shouter.getEyePosition(), maxWalls);
                 if (walls <= maxWalls) {
                     far.add(m);
-                    audibility.put(m, shoutRange - (dist + walls * Math.max(perWall, 0.0)));
+                    effDist.put(m, dist + walls * Math.max(perWall, 0.0));
                 }
             }
             if (far.isEmpty()) {
@@ -84,7 +84,7 @@ public final class ShoutGroan {
                     if (!zombie.isAlive()) continue;
                     PerceptionGoal goal = PerceptionGoal.of(zombie);
                     if (goal != null) {
-                        goal.hear(shouter.position(), jitter, 2, true, audibility.getOrDefault(zombie, 0.0));
+                        goal.hear(shouter.position(), jitter, false, NoiseKind.SHOUT, effDist.getOrDefault(zombie, shoutRange));
                     }
                 }
             }

@@ -36,7 +36,6 @@ public final class ZombieAIConfig {
     // Simple Voice Radio / Speaker support
     public static final ForgeConfigSpec.BooleanValue RADIO_ENABLED;
     public static final ForgeConfigSpec.DoubleValue RADIO_RANGE;
-    public static final ForgeConfigSpec.BooleanValue RADIO_PRIORITY_BOOST;
     public static final ForgeConfigSpec.DoubleValue SPRINT_NOISE_RADIUS;
     public static final ForgeConfigSpec.DoubleValue SNEAK_NOISE_RADIUS;
     public static final ForgeConfigSpec.BooleanValue CREATIVE_MAKES_NOISE;
@@ -68,11 +67,12 @@ public final class ZombieAIConfig {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
 
         b.comment("Visual detection").push("vision");
-        SIGHT_DISTANCE = b.comment("Max distance (blocks) at which zombies/husks can SEE a player (needs clear line of sight).")
-                .defineInRange("sightDistance", 24.0, 1.0, 1024.0);
-        FIELD_OF_VIEW = b.comment("Total field of view in degrees. Zombies only NOTICE players inside this cone in front of them.",
-                        "360 = they see all around. Sneaking only shortens range; a sneaking player right in front is still seen.")
-                .defineInRange("fieldOfViewDegrees", 120.0, 10.0, 360.0);
+        SIGHT_DISTANCE = b.comment("Zombies are BLIND: they only see a player who is within 1 block AND in clear line of sight.",
+                        "This can never be more than 1.0 (hard limit). Everything else is hearing.")
+                .defineInRange("sightDistance", 1.0, 0.1, 1.0);
+        FIELD_OF_VIEW = b.comment("Total field of view in degrees. 360 = the 1-block sight works all around the zombie (default).",
+                        "Lower it if zombies should not see a player right behind them.")
+                .defineInRange("fieldOfViewDegrees", 360.0, 10.0, 360.0);
         SNEAK_SIGHT_MULTIPLIER = b.comment("Sight range multiplier while the target sneaks (0.1 = only 10% of normal range). 1.0 = sneaking has no effect.")
                 .defineInRange("sneakSightMultiplier", 0.1, 0.0, 1.0);
         LOSE_SIGHT_GRACE_TICKS = b.comment("Ticks a target may be hidden before the zombie drops it (prevents flicker at corners).",
@@ -123,7 +123,9 @@ public final class ZombieAIConfig {
                 .define("redirectToNewestSound", true);
         LOUD_NOISE_BEATS_SIGHT = b.comment("A LOUD noise (normal talking, shouting, sprinting, gunshots and other Zombie Awareness sounds) somewhere else beats what the zombie sees:",
                         "it drops the player in front of it and goes to the noise instead, and ignores quiet noises and its eyes until it gets there.",
-                        "Whispers, walking and jumping are not loud enough.")
+                        "Whispers, walking and jumping are not loud enough.",
+                        "NOISE PRIORITY (a zombie always goes to the higher one, even if a lower one is closer; same priority = the closer one wins):",
+                        "  gunshots / Zombie Awareness sounds  >  shouting  >  speakers & radios  >  normal talking (= sprinting)  >  walking / whispers")
                 .define("loudNoiseBeatsSight", true);
         SHOUT_GROWL_ENABLED = b.comment("When you shout and zombies BEYOND normal talking range hear it, everyone in the shout radius hears loud growls from their direction.")
                 .define("shoutGrowlEnabled", true);
@@ -138,14 +140,11 @@ public final class ZombieAIConfig {
                 .defineInRange("shoutGrowlVolume", 5.0, 1.0, 16.0);
 
         // Simple Voice Radio / Speaker support
-        RADIO_ENABLED = b.comment("Detect Simple Voice Chat radios/speakers and treat them as sound sources.",
-                "Radios attract zombies more than normal talking but less than shouting/gunfire.")
+        RADIO_ENABLED = b.comment("Speakers, radios and other audio that plays through Simple Voice Chat (made by other mods, not by a player talking)",
+                        "attract zombies. They rank above normal talking, but below shouting and gunshots.")
                 .define("radioEnabled", true);
-        RADIO_RANGE = b.comment("Hearing range (blocks) for a radio/speaker.")
+        RADIO_RANGE = b.comment("Hearing range (blocks) for a speaker / radio (walls and rain reduce it like for voices).")
                 .defineInRange("radioRange", 64.0, 1.0, 1024.0);
-        RADIO_PRIORITY_BOOST = b.comment("Radio sounds act like shouting (priority 2) instead of normal talking (priority 1).",
-                "true = zombies prioritize radios over normal talking, false = radios are just normal talking.")
-                .define("radioPriorityBoost", true);
         b.pop();
 
         b.comment("Dormancy: idle zombies stand perfectly still (no walking, no head turning) but still hear.",
@@ -212,7 +211,10 @@ public final class ZombieAIConfig {
     public static double maxDistance() { return Math.max(MIN_DISTANCE.get(), MAX_DISTANCE.get()); }
     private static double clamp(double v) { return Math.max(minDistance(), Math.min(maxDistance(), v)); }
 
-    public static double sight() { return clamp(SIGHT_DISTANCE.get()); }
+    /** Zombies are blind: sight can never be more than this many blocks. */
+    public static final double MAX_SIGHT = 1.0;
+
+    public static double sight() { return Math.min(MAX_SIGHT, clamp(SIGHT_DISTANCE.get())); }
     public static double hearing() { return clamp(HEARING_DISTANCE.get()); }
 
     /** Hearing range in this level: reduced while it is raining. */
@@ -229,7 +231,6 @@ public final class ZombieAIConfig {
     // ---- radio accessors ----
     public static boolean radioEnabled() { return RADIO_ENABLED.get(); }
     public static double radioRange() { return clamp(RADIO_RANGE.get()); }
-    public static boolean radioPriorityBoost() { return RADIO_PRIORITY_BOOST.get(); }
 
     // ---- setters used by the command (caller validates the range) ----
     public static void setSight(double v) { SIGHT_DISTANCE.set(v); SPEC.save(); }

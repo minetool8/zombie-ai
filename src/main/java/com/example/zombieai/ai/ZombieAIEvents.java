@@ -152,8 +152,7 @@ public final class ZombieAIEvents {
         if (inst == null) return;
         AttributeModifier existing = inst.getModifier(RANGE_UUID);
         double current = inst.getValue() - (existing != null ? existing.getAmount() : 0.0);
-        // Use hardcoded 1.0 block sight range instead of config
-        double needed = Math.max(1.0,
+        double needed = Math.max(ZombieAIConfig.sight(),
                 ZombieAIConfig.hearing() + ZombieAIConfig.INVESTIGATE_RADIUS.get());
         if (ZombieAIConfig.BLOOD_SMELL_ENABLED.get()) {
             needed = Math.max(needed, ZombieAIConfig.BLOOD_SMELL_RANGE.get() * 0.6);   // typical blood scent reach
@@ -204,7 +203,8 @@ public final class ZombieAIEvents {
             MovementNoise.refresh(server);
             BloodSense.refresh(server);
             ShoutGroan.tick(server);
-            SoundBroadcaster.tick(server);   // voice + footsteps pushed to zombies in range
+            RadioSense.refresh(server);      // speakers / radios that are playing right now
+            SoundBroadcaster.tick(server);   // voice + footsteps + radios pushed to zombies in range
             SoundRedirect.tick(server);      // newest Zombie Awareness sound wins
         }
     }
@@ -227,6 +227,7 @@ public final class ZombieAIEvents {
         MovementNoise.forget(event.getEntity().getUUID());
         BloodSense.forget(event.getEntity().getUUID());
         ShoutGroan.forget(event.getEntity().getUUID());
+        RadioSense.forget(event.getEntity().getUUID());
     }
 
     @SubscribeEvent

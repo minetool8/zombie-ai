@@ -21,3 +21,15 @@ Settings persist in `config/zombieai-common.toml`.
 - NOT scaled: step height, attack reach, shadow, sounds. Clients without the mod see normal-size models.
 - Size is derived from the entity UUID, so it is stable across save/load and cannot be re-rolled.
 - Vanilla clients: the mod can be server-only (they just won't see bigger models).
+
+## Senses
+- **Sight:** zombies are blind. They only see a player within **1 block** with a clear line of sight (fixed, cannot be raised).
+- **Hearing** is their real sense. Noise priority (a zombie goes to the higher one even if a lower one is closer;
+  same priority = the closer one wins):
+  1. gunshots / Zombie Awareness sounds (TACZ gunfire, mining, doors)
+  2. shouting
+  3. speakers / radios playing through Simple Voice Chat
+  4. normal talking (and sprinting)
+  5. walking / whispering
+- Speakers/radios are detected from Simple Voice Chat sound packets that do not come from a player's microphone.
+  `/zombieai debug` shows how many such packets the server has seen (if it stays 0 next to a playing radio, tell me which radio mod you use).

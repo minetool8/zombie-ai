@@ -15,8 +15,8 @@ import java.util.List;
 
 /**
  * Whenever Zombie Awareness creates a NEW sound (gunshots from the TACZ add-on, mining, doors...), every
- * zombie that can hear it turns and walks to it at once, even if it was already on its way to an older
- * sound. So: shot at point A, then immediately a shot at point B -> they drop A and go to B.
+ * zombie that can hear it turns and walks to it at once. These are the HIGHEST priority noises: they beat
+ * shouting, radios and talking even if those are much closer, and the newest one wins. So: shot at point A, then immediately a shot at point B -> they drop A and go to B.
  * Works without Zombie Awareness being a compile dependency: the sound is found by its entity type.
  */
 public final class SoundRedirect {
@@ -72,7 +72,7 @@ public final class SoundRedirect {
             }
             PerceptionGoal goal = PerceptionGoal.of(z);
             if (goal != null) {
-                goal.hearGunshot(pos, jitter, range - (dist + walls * perWall));   // instant: newest sound wins
+                goal.hear(pos, jitter, true, NoiseKind.GUNSHOT, dist + walls * perWall);   // top priority, newest sound wins
             }
         }
     }

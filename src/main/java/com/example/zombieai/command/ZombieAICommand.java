@@ -6,6 +6,7 @@ import com.example.zombieai.config.ZombieAIConfig;
 import com.mojang.brigadier.CommandDispatcher;
 import com.example.zombieai.ai.PerceptionGoal;
 import com.example.zombieai.ai.PerceptionUtil;
+import com.example.zombieai.ai.RadioSense;
 import com.example.zombieai.ai.ZombieScale;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -71,6 +72,12 @@ public final class ZombieAICommand {
         double max = ZombieAIConfig.maxDistance();
         String name = sight ? "sight" : "hearing";
 
+        if (sight) {
+            src.sendFailure(Component.literal("Zombies are blind: sight is fixed at "
+                    + fmt(ZombieAIConfig.MAX_SIGHT) + " block (line of sight needed). Use /zombieai hearing instead."));
+            return 0;
+        }
+
         if (!Double.isFinite(value) || value < min || value > max) {
             src.sendFailure(Component.literal("Invalid " + name + " distance. Allowed range: "
                     + fmt(min) + " to " + fmt(max) + " blocks."));
@@ -99,6 +106,9 @@ public final class ZombieAICommand {
                         + fmt(ZombieAIConfig.WALL_ATTENUATION.get()) + " extra per solid block)\n"
                         + " Voice: whisper (up to " + fmt(HearingManager.WHISPER_LIMIT_DB) + " dB) " + fmt(ZombieAIConfig.WHISPER_RANGE.get()) + ", talking " + fmt(ZombieAIConfig.hearing())
                         + ", shouting (above " + fmt(HearingManager.SHOUT_LIMIT_DB) + " dB) " + fmt(ZombieAIConfig.SHOUT_RANGE.get()) + " blocks\n"
+                        + " Radios/speakers: " + (ZombieAIConfig.radioEnabled()
+                                ? fmt(ZombieAIConfig.radioRange()) + " blocks" : "off") + "\n"
+                        + " Noise priority: gunshot > shout > radio > normal talking/sprint > walk/whisper\n"
                         + " Limits: " + fmt(ZombieAIConfig.minDistance()) + " - " + fmt(ZombieAIConfig.maxDistance()) + " blocks\n"
                         + " " + voice), false);
         return 1;
@@ -206,6 +216,8 @@ public final class ZombieAICommand {
                             ? nearest.getTarget().getType().getDescriptionId() + " (hearing is skipped)" : "none")
                     .append(", investigating: ").append(goal != null && goal.hasInvestigation() ? "yes" : "no");
         }
+        sb.append("\n [4] Speaker/radio sound packets seen by server: ").append(RadioSense.totalPackets())
+                .append(", playing right now: ").append(RadioSense.sources().size());
         String out = sb.toString();
         src.sendSuccess(() -> Component.literal(out), false);
         return 1;
