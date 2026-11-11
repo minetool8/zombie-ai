@@ -27,6 +27,7 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.BooleanValue REDIRECT_TO_NEWEST_SOUND;
     public static final ForgeConfigSpec.BooleanValue LOUD_NOISE_BEATS_SIGHT;
     public static final ForgeConfigSpec.BooleanValue SHOUT_GROWL_ENABLED;
+    public static final ForgeConfigSpec.BooleanValue SHOUT_GROWL_ZOMBIES_COME;
     public static final ForgeConfigSpec.IntValue SHOUT_GROWL_COOLDOWN_TICKS;
     public static final ForgeConfigSpec.IntValue SHOUT_GROWL_MAX_ZOMBIES;
     public static final ForgeConfigSpec.DoubleValue SHOUT_GROWL_VOLUME;
@@ -126,6 +127,9 @@ public final class ZombieAIConfig {
                 .define("loudNoiseBeatsSight", true);
         SHOUT_GROWL_ENABLED = b.comment("When you shout and zombies BEYOND normal talking range hear it, everyone in the shout radius hears loud growls from their direction.")
                 .define("shoutGrowlEnabled", true);
+        SHOUT_GROWL_ZOMBIES_COME = b.comment("Zombies BEYOND normal talking range that hear your shout (and growl) walk to the spot you shouted from, right away.",
+                        "Still respects loudNoiseBeatsSight for zombies that are already chasing a player.")
+                .define("shoutGrowlZombiesCome", true);
         SHOUT_GROWL_COOLDOWN_TICKS = b.comment("Minimum ticks between growls per shouting player (20 = 1 second).")
                 .defineInRange("shoutGrowlCooldownTicks", 100, 20, 2400);
         SHOUT_GROWL_MAX_ZOMBIES = b.comment("How many far zombies growl per shout.")

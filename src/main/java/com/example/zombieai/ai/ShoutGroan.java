@@ -24,6 +24,7 @@ import java.util.UUID;
  * When a player SHOUTS and zombies far away (beyond normal talking range) hear it, every player inside
  * the shout radius hears loud zombie growls coming from the direction of those far zombies.
  * If only nearby zombies hear the shout, there is no growl.
+ * The far zombies that heard it also walk to the place the shout came from.
  */
 public final class ShoutGroan {
     /** The growl is placed at most this far from each listener so it is loud, but still sounds "from afar". */
@@ -57,13 +58,16 @@ public final class ShoutGroan {
             // Zombies that hear the shout from BEYOND normal talking range.
             double perWall = ZombieAIConfig.WALL_ATTENUATION.get();
             List<Zombie> far = new ArrayList<>();
+            Map<Zombie, Double> audibility = new HashMap<>();
             for (Zombie m : level.getEntitiesOfClass(Zombie.class, shouter.getBoundingBox().inflate(shoutRange),
                     ZombieScale::applies)) {
                 double dist = m.distanceTo(shouter);
                 if (dist <= normalRange || dist > shoutRange) continue;
                 int maxWalls = perWall > 0.0 ? (int) Math.floor((shoutRange - dist) / perWall) : Integer.MAX_VALUE;
-                if (PerceptionUtil.countOccluders(level, m.getEyePosition(), shouter.getEyePosition(), maxWalls) <= maxWalls) {
+                int walls = PerceptionUtil.countOccluders(level, m.getEyePosition(), shouter.getEyePosition(), maxWalls);
+                if (walls <= maxWalls) {
                     far.add(m);
+                    audibility.put(m, shoutRange - (dist + walls * Math.max(perWall, 0.0)));
                 }
             }
             if (far.isEmpty()) {
@@ -71,6 +75,19 @@ public final class ShoutGroan {
                 continue;
             }
             NEXT_ALLOWED.put(shouter.getUUID(), now + ZombieAIConfig.SHOUT_GROWL_COOLDOWN_TICKS.get());
+
+            // The zombies that heard the shout from afar come to the spot it came from, right away
+            // (no reaction delay), instead of only growling.
+            if (ZombieAIConfig.SHOUT_GROWL_ZOMBIES_COME.get()) {
+                double jitter = ZombieAIConfig.INVESTIGATE_RADIUS.get();
+                for (Zombie zombie : far) {
+                    if (!zombie.isAlive()) continue;
+                    PerceptionGoal goal = PerceptionGoal.of(zombie);
+                    if (goal != null) {
+                        goal.hear(shouter.position(), jitter, 2, true, audibility.getOrDefault(zombie, 0.0));
+                    }
+                }
+            }
 
             Collections.shuffle(far);   // different zombies -> growls from different directions
             List<Zombie> chosen = far.subList(0, Math.min(ZombieAIConfig.SHOUT_GROWL_MAX_ZOMBIES.get(), far.size()));
