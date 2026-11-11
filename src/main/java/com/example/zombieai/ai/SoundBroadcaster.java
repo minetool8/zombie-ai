@@ -89,7 +89,7 @@ public final class SoundBroadcaster {
             for (String name : possibleNames) {
                 ResourceLocation rl = new ResourceLocation("voicechat", name);
                 if (BuiltInRegistries.ENTITY_TYPES.containsKey(rl)) {
-                    RADIO_ENTITY_TYPE = BuiltInRegistries.ENTITY_TYPES.getValue(rl);
+                    RADIO_ENTITY_TYPE = BuiltInRegistries.ENTITY_TYPES.get(rl);
                     break;
                 }
             }
@@ -98,7 +98,7 @@ public final class SoundBroadcaster {
                 for (String name : possibleNames) {
                     ResourceLocation rl = new ResourceLocation(name);
                     if (BuiltInRegistries.ENTITY_TYPES.containsKey(rl)) {
-                        RADIO_ENTITY_TYPE = BuiltInRegistries.ENTITY_TYPES.getValue(rl);
+                        RADIO_ENTITY_TYPE = BuiltInRegistries.ENTITY_TYPES.get(rl);
                         break;
                     }
                 }
