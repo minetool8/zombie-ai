@@ -57,6 +57,10 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.BooleanValue VALIDATE_FOREIGN_TARGETS;
     public static final ForgeConfigSpec.BooleanValue STRIP_ZA_SPEED_BOOST;
 
+    public static final ForgeConfigSpec.BooleanValue WALL_HOP_ENABLED;
+    public static final ForgeConfigSpec.IntValue WALL_HOP_MAX_HEIGHT;
+    public static final ForgeConfigSpec.BooleanValue SMART_APPROACH;
+
     public static final ForgeConfigSpec.DoubleValue MIN_DISTANCE;
     public static final ForgeConfigSpec.DoubleValue MAX_DISTANCE;
     public static final ForgeConfigSpec.IntValue COMMAND_PERMISSION_LEVEL;
@@ -184,6 +188,17 @@ public final class ZombieAIConfig {
                 .define("validateForeignTargets", true);
         STRIP_ZA_SPEED_BOOST = b.comment("Remove Zombie Awareness' random speed bonus from zombies/husks so it does not stack on our speed distribution.")
                 .define("stripZombieAwarenessSpeedBoost", true);
+        b.pop();
+
+        b.comment("Getting past walls and reaching high-up players").push("movement");
+        WALL_HOP_ENABLED = b.comment("A zombie that is stuck at a wall (it wants to go somewhere but is not moving) leaps up onto the ledge in front of it.")
+                .define("wallHopEnabled", true);
+        WALL_HOP_MAX_HEIGHT = b.comment("Highest wall/ledge (in blocks) a zombie can leap onto. 3 = up to a 3-block wall.")
+                .defineInRange("wallHopMaxHeight", 3, 1, 4);
+        SMART_APPROACH = b.comment("When a sound is 3+ blocks above the zombie and there is no walkable path up to it (player on a roof edge, cliff, tower),",
+                        "the zombie walks to the ground right BENEATH the sound instead of hunting for the way to the same edge.",
+                        "If there IS a real path (stairs, ramps) it still takes it.")
+                .define("smartApproach", true);
         b.pop();
 
         b.comment("Limits and permissions for /zombieai").push("commands");

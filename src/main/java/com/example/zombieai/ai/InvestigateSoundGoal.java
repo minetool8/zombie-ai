@@ -11,9 +11,15 @@ import java.util.EnumSet;
 public class InvestigateSoundGoal extends Goal {
     private final Mob mob;
     private final PerceptionGoal perception;
+    /** How long a zombie waits beneath a sound it cannot reach before giving up. */
+    private static final int WAIT_BENEATH_TICKS = 100;
+
     private Vec3 pathedTo;
+    /** Where it actually walks: the sound itself, or the ground spot beneath it when the sound is high up. */
+    private Vec3 approach;
     private int repath;
     private int stuck;
+    private int beneath;
 
     public InvestigateSoundGoal(Mob mob, PerceptionGoal perception) {
         this.mob = mob;
@@ -39,8 +45,10 @@ public class InvestigateSoundGoal extends Goal {
     @Override
     public void start() {
         pathedTo = null;
+        approach = null;
         repath = 0;
         stuck = 0;
+        beneath = 0;
     }
 
     @Override
@@ -56,13 +64,31 @@ public class InvestigateSoundGoal extends Goal {
         }
         PathNavigation nav = mob.getNavigation();
 
+        // Sound is high above us and we are standing beneath it (or at the closest ground spot): wait there,
+        // WallHopGoal leaps up if the ledge is low enough.
+        if (approach != null && approach != pos && pos == pathedTo) {
+            double hx = pos.x - mob.getX();
+            double hz = pos.z - mob.getZ();
+            if (hx * hx + hz * hz < 2.5 * 2.5 || mob.distanceToSqr(approach) < 1.5 * 1.5) {
+                nav.stop();
+                if (++beneath > WAIT_BENEATH_TICKS) {
+                    perception.clearInvestigate();
+                    beneath = 0;
+                }
+                return;
+            }
+        }
+
         // A NEW target point (the sound moved, or a retry): walk there right away instead of
         // finishing the old path first.
         if (pos != pathedTo) {
             pathedTo = pos;
+            approach = ApproachResolver.resolve(mob, pos);
+            perception.setApproachPos(approach);
             stuck = 0;
+            beneath = 0;
             repath = 10;
-            nav.moveTo(pos.x, pos.y, pos.z, 1.0D);
+            nav.moveTo(approach.x, approach.y, approach.z, 1.0D);
             return;
         }
 
@@ -77,7 +103,7 @@ public class InvestigateSoundGoal extends Goal {
                     stuck = 0;
                     return;
                 }
-                nav.moveTo(pos.x, pos.y, pos.z, 1.0D);
+                nav.moveTo(approach.x, approach.y, approach.z, 1.0D);
             } else {
                 stuck = 0;
             }

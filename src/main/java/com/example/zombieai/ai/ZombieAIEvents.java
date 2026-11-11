@@ -135,6 +135,7 @@ public final class ZombieAIEvents {
         PerceptionGoal perception = new PerceptionGoal(mob);
         mob.targetSelector.addGoal(1, perception);
         mob.goalSelector.addGoal(3, new InvestigateSoundGoal(mob, perception));
+        mob.goalSelector.addGoal(2, new WallHopGoal(mob, perception));   // no flags: runs beside chase/investigate
         mob.goalSelector.addGoal(1, new DormantGoal(mob, perception));
     }
 

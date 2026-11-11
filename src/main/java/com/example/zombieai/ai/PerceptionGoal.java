@@ -39,6 +39,8 @@ public class PerceptionGoal extends Goal {
     private int handledHurtStamp;
 
     private Vec3 investigatePos;
+    /** Where the zombie really walks to (ground beneath a high sound); null = same as investigatePos. */
+    private Vec3 approachPos;
     private int investigateExpiry;
     private int lastInvestigateUpdate = -1000;
     private Vec3 investigateCenter;
@@ -77,8 +79,11 @@ public class PerceptionGoal extends Goal {
 
     public Vec3 investigatePos() { return investigatePos; }
     public boolean hasInvestigation() { return investigatePos != null; }
+    public Vec3 approachPos() { return approachPos != null ? approachPos : investigatePos; }
+    public void setApproachPos(Vec3 pos) { approachPos = pos; }
     public void clearInvestigate() {
         investigatePos = null;
+        approachPos = null;
         investigateCenter = null;
         currentKind = null;
         currentDist = Double.MAX_VALUE;
@@ -92,6 +97,7 @@ public class PerceptionGoal extends Goal {
 
     private void startInvestigate(Vec3 pos) {
         investigatePos = pos;
+        approachPos = null;
         investigateCenter = null;
         investigateExpiry = ticks + ZombieAIConfig.INVESTIGATE_TIMEOUT_TICKS.get();
         wake();
@@ -120,6 +126,7 @@ public class PerceptionGoal extends Goal {
         if (investigateCenter == null || investigateRetries >= 2) return false;
         investigateRetries++;
         investigatePos = jitterPoint(investigateCenter, Math.max(investigateJitter, 3.0));
+        approachPos = null;
         investigateExpiry = ticks + ZombieAIConfig.INVESTIGATE_TIMEOUT_TICKS.get();
         return true;
     }

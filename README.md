@@ -33,3 +33,12 @@ Settings persist in `config/zombieai-common.toml`.
   5. walking / whispering
 - Speakers/radios are detected from Simple Voice Chat sound packets that do not come from a player's microphone.
   `/zombieai debug` shows how many such packets the server has seen (if it stays 0 next to a playing radio, tell me which radio mod you use).
+
+## Getting past walls
+- **Wall hop** (`WallHopGoal`): a zombie that wants to go somewhere (chasing, or walking to a sound) but has stopped moving
+  leaps onto the ledge in front of it, up to `wallHopMaxHeight` blocks (default 3, max 4). It only fires when a free landing
+  spot with a solid floor exists on top of the obstacle, so it never jumps blindly. Config: `movement.wallHopEnabled`.
+- **Smart approach** (`ApproachResolver`): if a sound is 3+ blocks above the zombie and no walkable path leads up to it
+  (player on a roof edge, cliff, tower) the zombie walks to the ground directly **beneath** the sound instead of hunting for
+  the way to the same edge. If a real path exists (stairs, ramps) it takes it. Beneath the sound it waits ~5 seconds and
+  hops up if the ledge is low enough. Config: `movement.smartApproach`.
