@@ -34,6 +34,7 @@ public final class ZombieAIEvents {
     private static final UUID SPEED_UUID = UUID.fromString("5d0b6f3a-7a53-4f1e-9a41-3c1f0a6b7e01");
     private static final UUID HEALTH_UUID = UUID.fromString("5d0b6f3a-7a53-4f1e-9a41-3c1f0a6b7e02");
     private static final UUID RANGE_UUID = UUID.fromString("5d0b6f3a-7a53-4f1e-9a41-3c1f0a6b7e03");
+    private static final UUID KB_UUID = UUID.fromString("5d0b6f3a-7a53-4f1e-9a41-3c1f0a6b7e04");
     private static final String TAG_ROLLED = "zombieai_rolled_v2";
 
     private ZombieAIEvents() {}
@@ -53,6 +54,11 @@ public final class ZombieAIEvents {
             rollIfNeeded(mob);
             installGoals(mob);
             refreshFollowRange(mob);
+            AttributeInstance kb = mob.getAttribute(Attributes.KNOCKBACK_RESISTANCE);   // also stops explosion push
+            if (kb != null && kb.getModifier(KB_UUID) == null) {
+                kb.addTransientModifier(new AttributeModifier(KB_UUID, "zombieai no knockback", 1.0,
+                        AttributeModifier.Operation.ADDITION));
+            }
         }
         // Both sides: re-evaluate the hitbox so EntityEvent.Size applies the UUID-derived scale.
         mob.refreshDimensions();
@@ -135,6 +141,8 @@ public final class ZombieAIEvents {
         PerceptionGoal perception = new PerceptionGoal(mob);
         mob.targetSelector.addGoal(1, perception);
         mob.goalSelector.addGoal(3, new InvestigateSoundGoal(mob, perception));
+        mob.goalSelector.addGoal(2, new UnstickGoal(mob, perception));    // no flags: direct walk when pathing fails
+        mob.goalSelector.addGoal(2, new RageBreakGoal(mob, perception));  // no flags: enraged zombies break blocks
         mob.goalSelector.addGoal(2, new WallHopGoal(mob, perception));   // no flags: runs beside chase/investigate
         mob.goalSelector.addGoal(1, new DormantGoal(mob, perception));
     }
@@ -210,6 +218,14 @@ public final class ZombieAIEvents {
         }
     }
 
+    /** Zombies / husks take no knockback. */
+    @SubscribeEvent
+    public static void onKnockBack(net.minecraftforge.event.entity.living.LivingKnockBackEvent event) {
+        if (ZombieScale.applies(event.getEntity())) {
+            event.setCanceled(true);
+        }
+    }
+
     @SubscribeEvent
     public static void onJump(LivingEvent.LivingJumpEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
@@ -234,5 +250,6 @@ public final class ZombieAIEvents {
     @SubscribeEvent
     public static void onRegisterCommands(RegisterCommandsEvent event) {
         ZombieAICommand.register(event.getDispatcher());
+        ZombieAICommand.registerVoice(event.getDispatcher());
     }
 }

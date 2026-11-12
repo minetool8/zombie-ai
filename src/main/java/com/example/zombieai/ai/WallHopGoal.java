@@ -19,7 +19,9 @@ import java.util.EnumSet;
  */
 public class WallHopGoal extends Goal {
     /** Upward launch speed (blocks/tick) to clear a ledge of height 1..4 with ~0.35 blocks to spare. */
-    private static final double[] HOP_V = {0.0, 0.437, 0.598, 0.727, 0.841};
+    private static final double[] HOP_V = {0.0, 0.465, 0.598, 0.727, 0.841};
+    /** Zombies only leap onto a 1-block ledge (jump apex ~1.5 blocks). Fences / walls (1.5 tall collision) stay impassable. */
+    private static final int HARD_MAX_HEIGHT = 1;
     private static final int SAMPLE_TICKS = 5;
     private static final int AIR_ASSIST_TICKS = 24;
     /** Directions tried, as angle offsets (degrees) from the direction to the goal. */
@@ -117,7 +119,7 @@ public class WallHopGoal extends Goal {
             dx = gx / len;
             dz = gz / len;
         }
-        int maxH = ZombieAIConfig.WALL_HOP_MAX_HEIGHT.get();
+        int maxH = Math.min(HARD_MAX_HEIGHT, ZombieAIConfig.WALL_HOP_MAX_HEIGHT.get());
         for (double angle : ANGLES) {
             double rad = Math.toRadians(angle);
             double rx = dx * Math.cos(rad) - dz * Math.sin(rad);

@@ -61,6 +61,15 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.IntValue WALL_HOP_MAX_HEIGHT;
     public static final ForgeConfigSpec.BooleanValue SMART_APPROACH;
 
+    public static final ForgeConfigSpec.DoubleValue NOTICE_RADIUS;
+    public static final ForgeConfigSpec.BooleanValue RAGE_ENABLED;
+    public static final ForgeConfigSpec.IntValue RAGE_SECONDS;
+    public static final ForgeConfigSpec.DoubleValue RAGE_SPEED_BONUS;
+    public static final ForgeConfigSpec.DoubleValue RAGE_BREAK_BONUS;
+    public static final ForgeConfigSpec.BooleanValue RAGE_BREAK_ENABLED;
+    public static final ForgeConfigSpec.DoubleValue BREAK_TICKS_PER_HARDNESS;
+    public static final ForgeConfigSpec.DoubleValue BREAK_MAX_HARDNESS;
+
     public static final ForgeConfigSpec.DoubleValue MIN_DISTANCE;
     public static final ForgeConfigSpec.DoubleValue MAX_DISTANCE;
     public static final ForgeConfigSpec.IntValue COMMAND_PERMISSION_LEVEL;
@@ -117,10 +126,10 @@ public final class ZombieAIConfig {
                 .defineInRange("whisperRange", 1.0, 0.0, 32.0);
         SHOUT_RANGE = b.comment("Hearing range (blocks) for shouting (voice louder than shoutMinDb).")
                 .defineInRange("shoutRange", 100.0, 1.0, 1024.0);
-        WHISPER_BIAS_DB = b.comment("Fine-tune after /zombieai calibrate. Positive = more of your quiet talking counts as a whisper.",
+        WHISPER_BIAS_DB = b.comment("Fine-tune after /voice calibrate. Positive = more of your quiet talking counts as a whisper.",
                         "Units are mic level steps (about 1 dB each). 0 = exactly the middle between your whisper and your normal voice.")
                 .defineInRange("whisperBias", 0.0, -20.0, 20.0);
-        SHOUT_BIAS_DB = b.comment("Fine-tune after /zombieai calibrate. Positive = you have to be louder before it counts as shouting.")
+        SHOUT_BIAS_DB = b.comment("Fine-tune after /voice calibrate. Positive = you have to be louder before it counts as shouting.")
                 .defineInRange("shoutBias", 0.0, -20.0, 20.0);
         REDIRECT_TO_NEWEST_SOUND = b.comment("Zombie Awareness sounds (gunshots, mining, doors...): zombies that can hear a NEW sound at once turn and walk to it,",
                         "even if they were already walking to an older one.")
@@ -199,6 +208,25 @@ public final class ZombieAIConfig {
                         "the zombie walks to the ground right BENEATH the sound instead of hunting for the way to the same edge.",
                         "If there IS a real path (stairs, ramps) it still takes it.")
                 .define("smartApproach", true);
+        b.pop();
+
+        b.comment("Close-range noticing and shout rage").push("combat");
+        NOTICE_RADIUS = b.comment("A zombie that is awake / walking to a sound targets any player this close (blocks) with a clear line, instead of the sound.")
+                .defineInRange("noticeRadius", 4.0, 1.0, 16.0);
+        RAGE_ENABLED = b.comment("A zombie that hears a player SHOUT becomes enraged: faster and it breaks blocks in its way.")
+                .define("rageEnabled", true);
+        RAGE_SECONDS = b.comment("How long the rage lasts after the last shout it heard.")
+                .defineInRange("rageSeconds", 30, 1, 600);
+        RAGE_SPEED_BONUS = b.comment("Extra movement speed while enraged (0.25 = 25% faster).")
+                .defineInRange("rageSpeedBonus", 0.25, 0.0, 5.0);
+        RAGE_BREAK_BONUS = b.comment("Extra block-breaking speed while enraged (0.75 = 75% faster).")
+                .defineInRange("rageBreakSpeedBonus", 0.75, 0.0, 10.0);
+        RAGE_BREAK_ENABLED = b.comment("Enraged zombies break blocks that are in their way to the player / sound (respects mobGriefing).")
+                .define("rageBreakBlocks", true);
+        BREAK_TICKS_PER_HARDNESS = b.comment("Base ticks a zombie needs per point of block hardness (before the rage bonus).")
+                .defineInRange("breakTicksPerHardness", 60.0, 1.0, 1000.0);
+        BREAK_MAX_HARDNESS = b.comment("Blocks harder than this (obsidian = 50) are never broken. Unbreakable blocks (bedrock) never are.")
+                .defineInRange("breakMaxHardness", 20.0, 0.0, 100.0);
         b.pop();
 
         b.comment("Limits and permissions for /zombieai").push("commands");

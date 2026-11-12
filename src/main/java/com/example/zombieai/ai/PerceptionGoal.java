@@ -4,6 +4,9 @@ import com.example.zombieai.config.ZombieAIConfig;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntitySelector;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.WrappedGoal;
@@ -13,6 +16,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Replaces vanilla player targeting (which follows players through walls).
@@ -31,8 +35,12 @@ public class PerceptionGoal extends Goal {
     /** Vision checks run every N ticks per zombie (staggered by entity id). */
     private static final int SIGHT_INTERVAL = 3;
 
+    private static final UUID RAGE_SPEED_UUID = UUID.fromString("5d0b6f3a-7a53-4f1e-9a41-3c1f0a6b7e05");
+
     private final Mob mob;
 
+    /** Tick (this goal's own counter) until which the zombie is enraged by a shout; 0 = calm. */
+    private int rageUntil;
     private int ticks;
     private int unseenTicks;
     private Vec3 lastSeenPos;
@@ -78,6 +86,27 @@ public class PerceptionGoal extends Goal {
     @Override public boolean requiresUpdateEveryTick() { return true; }
 
     public Vec3 investigatePos() { return investigatePos; }
+
+    // ------------------------------------------------------------------- rage
+
+    public boolean isEnraged() { return rageUntil > 0 && ticks <= rageUntil; }
+
+    /** Heard a shout: +speed (transient attribute) and faster block breaking (read by RageBreakGoal). */
+    private void enrage() {
+        if (!ZombieAIConfig.RAGE_ENABLED.get()) return;
+        rageUntil = ticks + ZombieAIConfig.RAGE_SECONDS.get() * 20;
+        AttributeInstance speed = mob.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speed != null && speed.getModifier(RAGE_SPEED_UUID) == null) {
+            speed.addTransientModifier(new AttributeModifier(RAGE_SPEED_UUID, "zombieai rage",
+                    ZombieAIConfig.RAGE_SPEED_BONUS.get(), AttributeModifier.Operation.MULTIPLY_TOTAL));
+        }
+    }
+
+    private void calm() {
+        rageUntil = 0;
+        AttributeInstance speed = mob.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speed != null) speed.removeModifier(RAGE_SPEED_UUID);
+    }
     public boolean hasInvestigation() { return investigatePos != null; }
     public Vec3 approachPos() { return approachPos != null ? approachPos : investigatePos; }
     public void setApproachPos(Vec3 pos) { approachPos = pos; }
@@ -150,8 +179,12 @@ public class PerceptionGoal extends Goal {
      * @param dist    effective distance to the source in blocks (walls count extra): smaller = closer
      */
     public void hear(Vec3 source, double jitter, boolean instant, NoiseKind kind, double dist) {
+        if (kind == NoiseKind.SHOUT) enrage();
         LivingEntity target = mob.getTarget();
         if (target != null) {
+            // A player already within noticing distance is never abandoned for a far-away noise.
+            double nr = ZombieAIConfig.NOTICE_RADIUS.get();
+            if (target instanceof Player && mob.distanceToSqr(target) <= nr * nr) return;
             if (!kind.loud() || !ZombieAIConfig.LOUD_NOISE_BEATS_SIGHT.get() || !(target instanceof Player)) return;
             if (target.position().distanceToSqr(source) < 36.0) return;   // the noise is the target itself
             dropTarget();
@@ -214,6 +247,9 @@ public class PerceptionGoal extends Goal {
         if (investigatePos != null && ticks > investigateExpiry) {
             clearInvestigate();
         }
+        if (rageUntil > 0 && ticks > rageUntil) {
+            calm();
+        }
 
         // A dormant (night/rain) zombie does not wake up for villagers/golems/turtles. A chase that
         // was already running before night fell is untouched (lastTarget was not null).
@@ -245,6 +281,9 @@ public class PerceptionGoal extends Goal {
             boolean found = acquireByBlood(level);
             // Frozen zombies keep their (fixed) field of view unless dormantCanSee is off.
             boolean mayLook = visionAllowed(level);
+            if (!found && (investigatePos != null || ticks < awakeUntil)) {
+                found = noticeNearby(level);   // someone close beats the sound it was walking to
+            }
             if (!found && mayLook) {
                 acquireTarget(level, sight);
             }
@@ -282,6 +321,29 @@ public class PerceptionGoal extends Goal {
             if (d > sight * sight || d >= bestDist) continue;
             if (!mob.canAttack(p)) continue;
             if (PerceptionUtil.canSee(mob, p, sight, true)) {   // must be in front of the zombie
+                best = p;
+                bestDist = d;
+            }
+        }
+        if (best == null) return false;
+        setVisualTarget(best);
+        return true;
+    }
+
+    /**
+     * A zombie that is awake or walking to a sound targets the nearest player within noticeRadius (default 4)
+     * that it has a clear line to, no matter who made the sound. Also fixes zombies that stopped next to a
+     * player without hitting them (investigation ended before the 1-block eyes could see the player).
+     */
+    private boolean noticeNearby(ServerLevel level) {
+        double radius = ZombieAIConfig.NOTICE_RADIUS.get();
+        Player best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (Player p : level.players()) {
+            if (!EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(p) || !p.isAlive()) continue;
+            double d = mob.distanceToSqr(p);
+            if (d > radius * radius || d >= bestDist || !mob.canAttack(p)) continue;
+            if (PerceptionUtil.canSee(mob, p, radius, false)) {
                 best = p;
                 bestDist = d;
             }

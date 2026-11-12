@@ -40,9 +40,6 @@ public final class ZombieAICommand {
                                         DoubleArgumentType.getDouble(ctx, "distance")))))
                 .then(Commands.literal("status")
                         .executes(ctx -> status(ctx.getSource())))
-                .then(Commands.literal("calibrate")
-                        .requires(ZombieAICommand::canConfigure)
-                        .executes(ctx -> calibrate(ctx.getSource())))
                 .then(Commands.literal("meter")
                         .requires(ZombieAICommand::canConfigure)
                         .executes(ctx -> meter(ctx.getSource())))
@@ -52,6 +49,13 @@ public final class ZombieAICommand {
                 .then(Commands.literal("reload")
                         .requires(ZombieAICommand::canConfigure)
                         .executes(ctx -> reload(ctx.getSource()))));
+    }
+
+    /** /voice calibrate: open to every player (no operator permission needed). */
+    public static void registerVoice(CommandDispatcher<CommandSourceStack> dispatcher) {
+        dispatcher.register(Commands.literal("voice")
+                .then(Commands.literal("calibrate")
+                        .executes(ctx -> calibrate(ctx.getSource()))));
     }
 
     private static boolean canConfigure(CommandSourceStack src) {

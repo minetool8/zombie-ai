@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * away immediately. No audio, no words, no recordings are stored or sent anywhere.
  *
  * How loudness is decided: each frame feeds a fast-attack meter. The loudest meter value of the last 0.4 s
- * is compared with two limits that /zombieai calibrate learned from YOUR mic: your whisper limit and your
+ * is compared with two limits that /voice calibrate learned from YOUR mic: your whisper limit and your
  * shout limit. Shouting also needs a few loud frames in a row, so a single pop or cough is not a shout.
  *
  * Voice packets arrive on voicechat's own thread, so markSpeaking() only touches concurrent maps.
@@ -237,7 +237,7 @@ public final class HearingManager {
             } else {
                 text = String.format(Locale.ROOT, "Mic: %.0f dB  =  %s  (zombies hear %.0f blocks)%s",
                         toDecibels(id, s.window), s.tier, rangeFor(p, p.level()),
-                        VoiceCalibration.isCalibrated(id) ? "" : "   [not calibrated: /zombieai calibrate]");
+                        VoiceCalibration.isCalibrated(id) ? "" : "   [not calibrated: /voice calibrate]");
             }
             p.displayClientMessage(Component.literal(text), true);
         }
@@ -313,7 +313,7 @@ public final class HearingManager {
         for (int i = 0; i < 3; i++) {
             if (s.samples[i].size() < MIN_SAMPLES) {
                 p.sendSystemMessage(Component.literal("Calibration failed: I barely heard your " + names[i]
-                        + ". Check that voice chat works (press V) and talk during the whole step. Run /zombieai calibrate again."));
+                        + ". Check that voice chat works (press V) and talk during the whole step. Run /voice calibrate again."));
                 return;
             }
         }
@@ -325,7 +325,7 @@ public final class HearingManager {
                     "Calibration failed: whisper %.0f, normal %.0f, shout %.0f (mic units). They must clearly rise. "
                             + "Something is flattening your volume: in Simple Voice Chat turn OFF automatic gain control / "
                             + "keep microphone amplification at 100%%, and turn off any 'voice enhancement' of your headset "
-                            + "or Windows. Then run /zombieai calibrate again and make the three voices very different.",
+                            + "or Windows. Then run /voice calibrate again and make the three voices very different.",
                     whisper, normal, shout)));
             return;
         }

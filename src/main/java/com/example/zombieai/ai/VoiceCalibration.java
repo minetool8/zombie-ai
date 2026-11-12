@@ -14,7 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Per-player voice limits learned by /zombieai calibrate. Every microphone is different, so each player
+ * Per-player voice limits learned by /voice calibrate. Every microphone is different, so each player
  * gets their own two numbers: "whisper limit" and "shout limit" (mic level, dBFS).
  * Stored in config/zombieai-voice-calibration.properties: player id + two numbers. No audio, ever.
  */
