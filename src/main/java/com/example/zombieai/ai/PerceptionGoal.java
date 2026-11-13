@@ -89,6 +89,16 @@ public class PerceptionGoal extends Goal {
 
     // ------------------------------------------------------------------- rage
 
+    private boolean breaking;
+    /** RageBreakGoal reports every tick it is digging: the zombie must not give up on its goal meanwhile. */
+    public void markBreaking(boolean b) {
+        breaking = b;
+        if (b && investigatePos != null) {
+            investigateExpiry = ticks + ZombieAIConfig.INVESTIGATE_TIMEOUT_TICKS.get();
+        }
+    }
+    public boolean isBreaking() { return breaking; }
+
     public boolean isEnraged() { return rageUntil > 0 && ticks <= rageUntil; }
 
     /** Heard a shout: +speed (transient attribute) and faster block breaking (read by RageBreakGoal). */
@@ -246,6 +256,9 @@ public class PerceptionGoal extends Goal {
         }
         if (investigatePos != null && ticks > investigateExpiry) {
             clearInvestigate();
+        }
+        if (ticks % 20 == 0 && mob.isPassenger()) {
+            mob.stopRiding();   // zombies never sit in boats, minecarts, furniture...
         }
         if (rageUntil > 0 && ticks > rageUntil) {
             calm();
@@ -409,7 +422,11 @@ public class PerceptionGoal extends Goal {
             }
             ownedTarget = player;
         }
-        if (PerceptionUtil.canSee(mob, player, sight, false)) {   // already tracking: it turns to follow
+        // Already tracking: it keeps the player for as long as the player is inside noticeRadius with a clear line.
+        // (With only the 1-block sight range the target was dropped 0.5s after being picked, so zombies walked
+        // up to the player and then never attacked.)
+        double track = Math.max(sight, ZombieAIConfig.NOTICE_RADIUS.get());
+        if (PerceptionUtil.canSee(mob, player, track, false)) {   // it turns to follow
             unseenTicks = 0;
             lastSeenPos = player.position();
             return;

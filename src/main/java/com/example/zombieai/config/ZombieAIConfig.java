@@ -67,6 +67,7 @@ public final class ZombieAIConfig {
     public static final ForgeConfigSpec.DoubleValue RAGE_SPEED_BONUS;
     public static final ForgeConfigSpec.DoubleValue RAGE_BREAK_BONUS;
     public static final ForgeConfigSpec.BooleanValue RAGE_BREAK_ENABLED;
+    public static final ForgeConfigSpec.BooleanValue BREAK_WHEN_NO_PATH;
     public static final ForgeConfigSpec.DoubleValue BREAK_TICKS_PER_HARDNESS;
     public static final ForgeConfigSpec.DoubleValue BREAK_MAX_HARDNESS;
 
@@ -223,6 +224,9 @@ public final class ZombieAIConfig {
                 .defineInRange("rageBreakSpeedBonus", 0.75, 0.0, 10.0);
         RAGE_BREAK_ENABLED = b.comment("Enraged zombies break blocks that are in their way to the player / sound (respects mobGriefing).")
                 .define("rageBreakBlocks", true);
+        BREAK_WHEN_NO_PATH = b.comment("Every zombie that is hunting a player / sound and has NO walkable path to it breaks the blocks in its way",
+                        "(at base speed; enraged zombies are faster). If a path exists it walks instead and breaks nothing.")
+                .define("breakWhenNoPath", true);
         BREAK_TICKS_PER_HARDNESS = b.comment("Base ticks a zombie needs per point of block hardness (before the rage bonus).")
                 .defineInRange("breakTicksPerHardness", 60.0, 1.0, 1000.0);
         BREAK_MAX_HARDNESS = b.comment("Blocks harder than this (obsidian = 50) are never broken. Unbreakable blocks (bedrock) never are.")

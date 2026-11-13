@@ -226,6 +226,22 @@ public final class ZombieAIEvents {
         }
     }
 
+    /** Zombies never turn into drowned. */
+    @SubscribeEvent
+    public static void onConvert(net.minecraftforge.event.entity.living.LivingConversionEvent.Pre event) {
+        if (ZombieScale.applies(event.getEntity()) && event.getOutcome() == net.minecraft.world.entity.EntityType.DROWNED) {
+            event.setCanceled(true);
+        }
+    }
+
+    /** Zombies never ride boats, minecarts, animals, modded furniture/seats (anything using startRiding). */
+    @SubscribeEvent
+    public static void onMount(net.minecraftforge.event.entity.EntityMountEvent event) {
+        if (event.isMounting() && ZombieScale.applies(event.getEntityMounting())) {
+            event.setCanceled(true);
+        }
+    }
+
     @SubscribeEvent
     public static void onJump(LivingEvent.LivingJumpEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {

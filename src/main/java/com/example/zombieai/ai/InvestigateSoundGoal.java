@@ -63,6 +63,10 @@ public class InvestigateSoundGoal extends Goal {
             return;
         }
         PathNavigation nav = mob.getNavigation();
+        if (perception.isBreaking()) {   // digging toward the sound: not stuck, do not give up
+            stuck = 0;
+            return;
+        }
 
         // Sound is high above us and we are standing beneath it (or at the closest ground spot): wait there,
         // WallHopGoal leaps up if the ledge is low enough.

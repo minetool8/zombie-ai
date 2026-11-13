@@ -54,3 +54,11 @@ Settings persist in `config/zombieai-common.toml`.
 - **Unstick** (`UnstickGoal`): a zombie that stands still although the straight line to its goal is physically free
   (e.g. modded non-solid blocks the pathfinder treats as blocked) walks straight there.
 - Zombies and husks take no knockback.
+
+## Smarter digging, no drowning, no riding
+- Zombies first check for a real walkable path to the player / sound. Only if there is none do they dig (any hunting
+  zombie at base speed, enraged ones 75% faster, `combat.breakWhenNoPath`). What blocks them is decided from the real
+  collision shapes: vertical slabs and other partial blocks they can pass are never broken, low steps are walked over,
+  1-block ledges are leapt. Vision uses several rays per target, so a player half hidden behind a partial block is seen.
+- Zombies never convert to drowned (conversion event cancelled).
+- Zombies never mount anything (boats, minecarts, animals, modded seats) and are dismounted if already riding.

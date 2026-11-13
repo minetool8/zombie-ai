@@ -42,10 +42,20 @@ public final class PerceptionUtil {
         Vec3 view = mob.getViewVector(1.0F);   // where the head is facing
         double cosHalfFov = Math.cos(Math.toRadians(ZombieAIConfig.FIELD_OF_VIEW.get() * 0.5));
 
+        // Several points (centre line + both sides), so a target half hidden behind a partial block
+        // (vertical slab, pane, fence...) is still seen, exactly like a player would see it.
+        Vec3 flat = new Vec3(target.getX() - from.x, 0.0, target.getZ() - from.z);
+        double fl = flat.length();
+        Vec3 side = fl > 1.0E-4 ? new Vec3(-flat.z / fl, 0.0, flat.x / fl).scale(target.getBbWidth() * 0.45) : Vec3.ZERO;
+        Vec3 mid = target.position().add(0, target.getBbHeight() * 0.5, 0);
         Vec3[] points = {
                 target.getEyePosition(),
-                target.position().add(0, target.getBbHeight() * 0.5, 0),
-                target.position().add(0, 0.2, 0)
+                mid,
+                target.position().add(0, 0.2, 0),
+                mid.add(side),
+                mid.subtract(side),
+                target.getEyePosition().add(side),
+                target.getEyePosition().subtract(side)
         };
         for (Vec3 to : points) {
             if (useFov) {
